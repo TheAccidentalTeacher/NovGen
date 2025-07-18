@@ -1,8 +1,9 @@
 import OpenAI from 'openai';
 import { v4 as uuidv4 } from 'uuid';
 import winston from 'winston';
-import { Novel, Chapter, Job } from '../models/index.js';
-import { genreInstructions } from '../../shared/genreInstructions.js';
+import { EventEmitter } from 'events';
+import { Novel, Chapter, Job } from '../models/index';
+import { genreInstructions } from '../../shared/genreInstructions';
 
 // Configure logger
 const logger = winston.createLogger({
@@ -35,6 +36,7 @@ interface GenerationJob {
 }
 
 interface GenerationParams {
+  novelId: string;
   title: string;
   genre: string;
   subgenre: string;
@@ -189,7 +191,6 @@ class AdvancedAIService {
     let stream = this.streams.get(jobId);
     
     if (!stream) {
-      const { EventEmitter } = require('events');
       stream = new EventEmitter();
       this.streams.set(jobId, stream);
 
@@ -199,7 +200,7 @@ class AdvancedAIService {
       }, 60 * 60 * 1000);
     }
 
-    return stream;
+    return stream!;
   }
 
   /**
@@ -283,7 +284,7 @@ class AdvancedAIService {
 
     } catch (error) {
       logger.error(`Generation process failed for job ${jobId}:`, error);
-      await this.handleJobError(jobId, error);
+      await this.handleJobError(jobId, error as Error);
     }
   }
 
@@ -605,7 +606,7 @@ Write the complete chapter now:`;
    * Call OpenAI with retry logic
    */
   private async callOpenAIWithRetry<T>(operation: () => Promise<T>): Promise<T> {
-    let lastError: Error;
+    let lastError: Error = new Error('No attempts made');
 
     for (let attempt = 0; attempt < this.MAX_RETRIES; attempt++) {
       try {
@@ -800,7 +801,7 @@ Write the complete chapter now:`;
 
     } catch (error) {
       logger.error(`Failed to resume job ${job._id}:`, error);
-      await this.handleJobError(job._id, error);
+      await this.handleJobError(job._id, error as Error);
     }
   }
 

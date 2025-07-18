@@ -1,0 +1,14 @@
+# Railway ignore file
+node_modules/
+.git/
+.env.local
+.env.development
+*.log
+.DS_Store
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+.vscode/
+*.test.ts
+*.test.js
+coverage/

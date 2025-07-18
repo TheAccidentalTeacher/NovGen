@@ -8,17 +8,15 @@ import mongoose from 'mongoose';
 import multer from 'multer';
 import { config } from 'dotenv';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-import NovelController from './controllers/NovelController.js';
-import AdvancedAIService from './services/AdvancedAIService.js';
+import NovelController from './controllers/NovelController';
+import AdvancedAIService from './services/AdvancedAIService';
 
 // Load environment variables
 config();
 
-// ES Module directory resolution
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Get directory name for CommonJS
+const __dirname = path.resolve();
 
 // Validate required environment variables
 const requiredEnvVars = [
@@ -239,6 +237,7 @@ class Server {
           ? 'Internal server error' 
           : error.message
       });
+      return;
     });
 
     // Handle unhandled promise rejections

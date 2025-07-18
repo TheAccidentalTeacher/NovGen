@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import { body, validationResult } from 'express-validator';
-import AdvancedAIService from '../services/AdvancedAIService.js';
-import { genreInstructions } from '../../shared/genreInstructions.js';
+import AdvancedAIService from '../services/AdvancedAIService';
+import { Novel } from '../models/index';
+import { genreInstructions } from '../../shared/genreInstructions';
 import winston from 'winston';
 
 const logger = winston.createLogger({
@@ -125,8 +126,23 @@ class NovelController {
           fictionLength = 'epic';
         }
 
+        // Create a novel document first
+        const novel = new Novel({
+          title,
+          genre,
+          subgenre,
+          synopsis,
+          targetWordCount: wordCount,
+          status: 'generating',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+
+        const savedNovel = await novel.save();
+
         // Start generation
         const jobId = await this.aiService.startGeneration({
+          novelId: savedNovel._id.toString(),
           title,
           genre,
           subgenre,

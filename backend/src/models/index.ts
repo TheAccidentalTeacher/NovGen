@@ -329,7 +329,7 @@ NovelSchema.methods.getProgress = function(): number {
 };
 
 ChapterSchema.methods.getWordCount = function(): number {
-  return this.content.split(/\s+/).filter(word => word.length > 0).length;
+  return this.content.split(/\s+/).filter((word: string) => word.length > 0).length;
 };
 
 // Static methods
