@@ -195,11 +195,12 @@ class Server {
 
     // Serve static files in production
     if (process.env.NODE_ENV === 'production') {
-      this.app.use(express.static(path.join(currentDir, '../../frontend/dist')));
+      const frontendDistPath = path.join(__dirname, '../../../frontend/dist');
+      this.app.use(express.static(frontendDistPath));
       
       // Handle client-side routing
       this.app.get('*', (req, res) => {
-        res.sendFile(path.join(currentDir, '../../frontend/dist/index.html'));
+        res.sendFile(path.join(frontendDistPath, 'index.html'));
       });
     }
 
