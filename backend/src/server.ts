@@ -8,12 +8,31 @@ import mongoose from 'mongoose';
 import multer from 'multer';
 import { config } from 'dotenv';
 import path from 'path';
+import winston from 'winston';
 
 import NovelController from './controllers/NovelController';
-import AdvancedAIService from './services/AdvancedAIService';
+import NovelGenerationService from './services/NovelGenerationService';
 
 // Load environment variables
 config();
+
+// Configure logger
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.simple()
+      )
+    })
+  ]
+});
 
 // Get directory name for ES modules (in CommonJS, __dirname is already available)
 const currentDir = path.resolve();
@@ -40,17 +59,17 @@ if (!process.env.MONGODB_URI) {
 class Server {
   private app: express.Application;
   private novelController: NovelController;
-  private aiService: AdvancedAIService;
+  private generationService: NovelGenerationService;
 
   constructor() {
     this.app = express();
-    this.aiService = new AdvancedAIService();
-    this.novelController = new NovelController(this.aiService);
+    this.generationService = new NovelGenerationService();
+    this.novelController = new NovelController(this.generationService);
     
     this.initializeMiddleware();
     this.initializeRoutes();
     this.initializeErrorHandling();
-    this.connectToDatabase();
+    this.initializeDatabase();
   }
 
   private initializeMiddleware(): void {
@@ -275,30 +294,32 @@ class Server {
     });
   }
 
-  private async connectToDatabase(): Promise<void> {
+  private async initializeServices(): Promise<void> {
     try {
-      if (!process.env.MONGODB_URI) {
-        console.warn('MONGODB_URI not provided - running without database');
-        return;
-      }
-
-      await mongoose.connect(process.env.MONGODB_URI, {
-        retryWrites: true,
-        w: 'majority'
-      });
-      
-      console.log('Connected to MongoDB successfully');
-
-      // Resume incomplete jobs only if database is available
-      try {
-        await this.aiService.resumeIncompleteJobs();
-      } catch (error) {
-        console.warn('Could not resume incomplete jobs:', error);
-      }
-      
+      await this.generationService.resumeIncompleteJobs();
+      logger.info('AI services initialized successfully');
     } catch (error) {
-      console.error('Failed to connect to MongoDB:', error);
-      console.log('Server will continue without database connection');
+      logger.error('Failed to initialize AI services:', error);
+    }
+  }
+
+  private async initializeDatabase(): Promise<void> {
+    if (!process.env.MONGODB_URI) {
+      logger.warn('MONGODB_URI not set - database features will be disabled');
+      return;
+    }
+
+    try {
+      await mongoose.connect(process.env.MONGODB_URI);
+      logger.info('Connected to MongoDB');
+      
+      // Initialize services after database connection
+      await this.initializeServices();
+    } catch (error) {
+      logger.error('Failed to connect to MongoDB:', error);
+      if (process.env.NODE_ENV === 'production') {
+        process.exit(1);
+      }
     }
   }
 

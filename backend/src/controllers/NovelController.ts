@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { body, validationResult } from 'express-validator';
-import AdvancedAIService from '../services/AdvancedAIService';
-import { Novel } from '../models/index';
+import NovelGenerationService from '../services/NovelGenerationService';
+import { Novel, Chapter, Job } from '../models/index';
 import { genreInstructions } from '../../shared/genreInstructions';
 import winston from 'winston';
 
@@ -12,10 +12,10 @@ const logger = winston.createLogger({
 });
 
 class NovelController {
-  private aiService: AdvancedAIService;
+  private generationService: NovelGenerationService;
 
-  constructor(aiService?: AdvancedAIService) {
-    this.aiService = aiService || new AdvancedAIService();
+  constructor(generationService?: NovelGenerationService) {
+    this.generationService = generationService || new NovelGenerationService();
   }
 
   /**
@@ -50,127 +50,61 @@ class NovelController {
   /**
    * Start novel generation
    */
-  generateNovel = [
-    // Validation middleware
-    body('title')
-      .isLength({ min: 1, max: 200 })
-      .withMessage('Title must be between 1 and 200 characters'),
-    body('genre')
-      .custom((value) => {
-        if (!genreInstructions[value]) {
-          throw new Error('Invalid genre');
-        }
-        return true;
-      }),
-    body('subgenre')
-      .custom((value, { req }) => {
-        const genre = req.body.genre;
-        if (!genre || !genreInstructions[genre] || !genreInstructions[genre][value]) {
-          throw new Error('Invalid subgenre for selected genre');
-        }
-        return true;
-      }),
-    body('synopsis')
-      .isLength({ min: 50, max: 10000 })
-      .withMessage('Synopsis must be between 50 and 10,000 characters'),
-    body('wordCount')
-      .isInt({ min: 10000, max: 500000 })
-      .withMessage('Word count must be between 10,000 and 500,000'),
-    body('chapters')
-      .isInt({ min: 1, max: 100 })
-      .withMessage('Chapter count must be between 1 and 100'),
-    body('targetChapterLength')
-      .isInt({ min: 500, max: 10000 })
-      .withMessage('Target chapter length must be between 500 and 10,000 words'),
-    body('wordCountVariance')
-      .isInt({ min: 0 })
-      .custom((value, { req }) => {
-        const targetLength = parseInt(req.body.targetChapterLength);
-        if (value > targetLength * 0.5) {
-          throw new Error('Word count variance too large');
-        }
-        return true;
-      }),
-
-    async (req: Request, res: Response): Promise<void> => {
-      try {
-        // Check for validation errors
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-          res.status(400).json({
-            success: false,
-            error: 'Validation failed',
-            details: errors.array()
-          });
-          return;
-        }
-
-        const {
-          title,
-          genre,
-          subgenre,
-          synopsis,
-          wordCount,
-          chapters,
-          targetChapterLength,
-          wordCountVariance
-        } = req.body;
-
-        // Determine fiction length category
-        let fictionLength: string;
-        if (wordCount < 40000) {
-          fictionLength = 'novella';
-        } else if (wordCount < 120000) {
-          fictionLength = 'novel';
-        } else {
-          fictionLength = 'epic';
-        }
-
-        // Create a novel document first
-        const novel = new Novel({
-          title,
-          genre,
-          subgenre,
-          synopsis,
-          targetWordCount: wordCount,
-          status: 'generating',
-          createdAt: new Date(),
-          updatedAt: new Date()
-        });
-
-        const savedNovel = await novel.save();
-
-        // Start generation
-        const jobId = await this.aiService.startGeneration({
-          novelId: savedNovel._id.toString(),
-          title,
-          genre,
-          subgenre,
-          synopsis,
-          wordCount,
-          chapters,
-          targetChapterLength,
-          wordCountVariance,
-          fictionLength
-        });
-
-        res.json({
-          success: true,
-          data: {
-            jobId,
-            message: 'Novel generation started successfully'
-          }
-        });
-
-      } catch (error) {
-        logger.error('Error starting novel generation:', error);
-        res.status(500).json({
+  generateNovel = async (req: Request, res: Response): Promise<void> => {
+    try {
+      // Validate request
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        res.status(400).json({
           success: false,
-          error: error instanceof Error ? error.message : 'Failed to start generation'
+          error: 'Validation failed',
+          details: errors.array()
         });
+        return;
       }
+
+      const {
+        title,
+        genre,
+        subgenre,
+        synopsis,
+        wordCount,
+        chapters,
+        targetChapterLength,
+        wordCountVariance,
+        fictionLength
+      } = req.body;
+
+      // Start generation
+      const jobId = await this.generationService.startGeneration({
+        title,
+        genre,
+        subgenre,
+        synopsis,
+        wordCount: parseInt(wordCount),
+        chapters: parseInt(chapters),
+        targetChapterLength: parseInt(targetChapterLength),
+        wordCountVariance: parseInt(wordCountVariance),
+        fictionLength
+      });
+
+      res.json({
+        success: true,
+        data: {
+          jobId,
+          message: 'Novel generation started',
+          estimatedTime: `${Math.ceil(chapters * 2)} minutes`
+        }
+      });
+
+    } catch (error) {
+      logger.error('Error starting generation:', error);
+      res.status(500).json({
+        success: false,
+        error: (error as Error)?.message || 'Failed to start novel generation'
+      });
     }
-  ];
+  };
 
   /**
    * Get generation job status
@@ -187,7 +121,7 @@ class NovelController {
         return;
       }
 
-      const status = await this.aiService.getJobStatus(jobId);
+      const status = await this.generationService.getJobStatus(jobId);
 
       res.json({
         success: true,
@@ -236,7 +170,7 @@ class NovelController {
       });
 
       // Get progress stream
-      const stream = this.aiService.createProgressStream(jobId);
+      const stream = this.generationService.createProgressStream(jobId);
 
       // Send initial connection message
       res.write(`data: ${JSON.stringify({ 
