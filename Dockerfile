@@ -23,10 +23,14 @@ FROM node:18-alpine AS production
 
 WORKDIR /app
 
-# Copy built application and node_modules
+# Copy package files for production install
+COPY --from=builder /app/backend/package*.json ./backend/
+
+# Install only production dependencies
+RUN cd backend && npm ci --omit=dev
+
+# Copy built application
 COPY --from=builder /app/backend/dist ./backend/dist
-COPY --from=builder /app/backend/node_modules ./backend/node_modules
-COPY --from=builder /app/backend/package.json ./backend/package.json
 
 # Expose port
 EXPOSE 3001
