@@ -133,12 +133,15 @@ class Server {
   private initializeRoutes(): void {
     // Health check
     this.app.get('/health', (req, res) => {
-      res.json({
+      const health = {
         success: true,
         message: 'Server is healthy',
         timestamp: new Date(),
-        version: process.env.npm_package_version || '1.0.0'
-      });
+        version: process.env.npm_package_version || '1.0.0',
+        database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+      };
+      
+      res.status(200).json(health);
     });
 
     // API routes
@@ -269,7 +272,12 @@ class Server {
 
   private async connectToDatabase(): Promise<void> {
     try {
-      await mongoose.connect(process.env.MONGODB_URI!, {
+      if (!process.env.MONGODB_URI) {
+        console.warn('MONGODB_URI not provided - running without database');
+        return;
+      }
+
+      await mongoose.connect(process.env.MONGODB_URI, {
         retryWrites: true,
         w: 'majority'
       });
@@ -281,7 +289,7 @@ class Server {
       
     } catch (error) {
       console.error('Failed to connect to MongoDB:', error);
-      process.exit(1);
+      console.log('Server will continue without database connection');
     }
   }
 
