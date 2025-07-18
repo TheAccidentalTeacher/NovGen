@@ -20,16 +20,21 @@ const currentDir = path.resolve();
 
 // Validate required environment variables
 const requiredEnvVars = [
-  'MONGODB_URI',
   'OPENAI_API_KEY',
   'JWT_SECRET'
 ];
 
+// Check critical variables (server won't start without these)
 for (const envVar of requiredEnvVars) {
   if (!process.env[envVar]) {
     console.error(`Missing required environment variable: ${envVar}`);
     process.exit(1);
   }
+}
+
+// Warn about missing optional variables
+if (!process.env.MONGODB_URI) {
+  console.warn('MONGODB_URI not set - database features will be disabled');
 }
 
 class Server {
