@@ -315,10 +315,11 @@ class Server {
   }
 
   public start(): void {
-    const port = process.env.PORT || 3000;
+    const port = Number(process.env.PORT) || 3000;
+    const host = '0.0.0.0'; // Bind to all interfaces for Railway
     
-    this.app.listen(port, () => {
-      console.log(`Server running on port ${port}`);
+    this.app.listen(port, host, () => {
+      console.log(`Server running on ${host}:${port}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`CORS origin: ${process.env.CORS_ORIGIN || 'http://localhost:5173'}`);
     });
