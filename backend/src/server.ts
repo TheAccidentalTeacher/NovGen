@@ -15,8 +15,8 @@ import AdvancedAIService from './services/AdvancedAIService';
 // Load environment variables
 config();
 
-// Get directory name for CommonJS
-const __dirname = path.resolve();
+// Get directory name for ES modules (in CommonJS, __dirname is already available)
+const currentDir = path.resolve();
 
 // Validate required environment variables
 const requiredEnvVars = [
@@ -171,11 +171,11 @@ class Server {
 
     // Serve static files in production
     if (process.env.NODE_ENV === 'production') {
-      this.app.use(express.static(path.join(__dirname, '../../frontend/dist')));
+      this.app.use(express.static(path.join(currentDir, '../../frontend/dist')));
       
       // Handle client-side routing
       this.app.get('*', (req, res) => {
-        res.sendFile(path.join(__dirname, '../../frontend/dist/index.html'));
+        res.sendFile(path.join(currentDir, '../../frontend/dist/index.html'));
       });
     }
 
