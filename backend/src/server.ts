@@ -192,13 +192,14 @@ class Server {
 
       // Multer errors
       if (error instanceof multer.MulterError) {
-        if (error.code === 'LIMIT_FILE_SIZE') {
+        const multerError = error as multer.MulterError;
+        if (multerError.code === 'LIMIT_FILE_SIZE') {
           return res.status(400).json({
             success: false,
             error: 'File too large. Maximum size is 10MB.'
           });
         }
-        if (error.code === 'LIMIT_FILE_COUNT') {
+        if (multerError.code === 'LIMIT_FILE_COUNT') {
           return res.status(400).json({
             success: false,
             error: 'Too many files. Only one file allowed.'
