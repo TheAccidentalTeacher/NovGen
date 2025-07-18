@@ -27,7 +27,7 @@ WORKDIR /app
 COPY --from=builder /app/backend/package*.json ./backend/
 
 # Install only production dependencies
-RUN cd backend && npm ci --omit=dev
+RUN cd backend && npm install --omit=dev
 
 # Copy built application
 COPY --from=builder /app/backend/dist ./backend/dist
