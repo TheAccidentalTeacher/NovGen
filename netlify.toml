@@ -8,7 +8,7 @@
   NODE_VERSION = "18"
   NPM_FLAGS = "--production=false"
   VITE_API_URL = "https://novgen-production.up.railway.app"
-  VITE_APP_NAME = "Somers Novel Generator"
+  VITE_APP_NAME = "NovGen"
   VITE_APP_VERSION = "1.0.0"
   VITE_ENABLE_ANALYTICS = "true"
   VITE_ENABLE_DEBUG = "false"

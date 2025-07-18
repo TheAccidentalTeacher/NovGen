@@ -20,7 +20,7 @@ const HomePage: React.FC = () => {
               </div>
             </div>
             <h1 className="text-5xl md:text-7xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent mb-6">
-              Somers Novel Generator
+              NovGen
             </h1>
             <p className="text-xl md:text-2xl text-gray-600 mb-8 max-w-3xl mx-auto leading-relaxed">
               Unleash your creativity with AI-powered storytelling. Generate complete novels with sophisticated genre-aware prompting.

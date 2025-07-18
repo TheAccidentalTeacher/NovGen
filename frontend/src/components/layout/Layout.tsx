@@ -25,7 +25,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   </svg>
                 </div>
                 <span className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                  Somers Novel Generator
+                  NovGen
                 </span>
               </Link>
             </div>
