@@ -44,8 +44,8 @@ class Server {
 
   constructor() {
     this.app = express();
-    this.novelController = new NovelController();
     this.aiService = new AdvancedAIService();
+    this.novelController = new NovelController(this.aiService);
     
     this.initializeMiddleware();
     this.initializeRoutes();
@@ -289,8 +289,12 @@ class Server {
       
       console.log('Connected to MongoDB successfully');
 
-      // Resume incomplete jobs
-      await this.aiService.resumeIncompleteJobs();
+      // Resume incomplete jobs only if database is available
+      try {
+        await this.aiService.resumeIncompleteJobs();
+      } catch (error) {
+        console.warn('Could not resume incomplete jobs:', error);
+      }
       
     } catch (error) {
       console.error('Failed to connect to MongoDB:', error);

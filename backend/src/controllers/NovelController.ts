@@ -14,8 +14,8 @@ const logger = winston.createLogger({
 class NovelController {
   private aiService: AdvancedAIService;
 
-  constructor() {
-    this.aiService = new AdvancedAIService();
+  constructor(aiService?: AdvancedAIService) {
+    this.aiService = aiService || new AdvancedAIService();
   }
 
   /**

@@ -61,15 +61,22 @@ class AdvancedAIService {
   private readonly CLEANUP_INTERVAL = 60 * 1000; // 1 minute
 
   constructor() {
+    // Don't throw here - we already validated in server.ts
     if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY environment variable is required');
+      logger.error('OPENAI_API_KEY environment variable is required');
+      // Create a dummy client to prevent crashes
+      this.openai = new OpenAI({
+        apiKey: 'dummy-key-for-initialization',
+        timeout: 120000,
+        maxRetries: 3
+      });
+    } else {
+      this.openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+        timeout: 120000, // 2 minutes
+        maxRetries: 3
+      });
     }
-
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      timeout: 120000, // 2 minutes
-      maxRetries: 3
-    });
 
     this.jobs = new Map();
     this.streams = new Map();
