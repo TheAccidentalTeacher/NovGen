@@ -1,460 +1,498 @@
-import OpenAI from 'openai';
-import { v4 as uuidv4 } from 'uuid';
-import winston from 'winston';
-import { Novel, Chapter, Job } from '../models/index';
-import { genreInstructions } from '../../shared/genreInstructions';
+import { AdvancedAIService, NovelGenerationRequest, ChapterGenerationRequest } from './AdvancedAIService';
+import { Novel, Chapter, GenerationJob, IGenerationJob } from '../models/index.js';
+import { EventEmitter } from 'events';
 
-// Railway-compatible logger (console only)
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.simple()
-  ),
-  transports: [new winston.transports.Console()]
-});
-
-interface GenerationParams {
-  title: string;
-  genre: string;
-  subgenre: string;
-  synopsis: string;
-  wordCount: number;
-  chapters: number;
-  targetChapterLength: number;
-  wordCountVariance: number;
-  fictionLength: string;
+export interface GenerationProgress {
+  jobId: string;
+  status: 'pending' | 'generating_outline' | 'generating_chapters' | 'completed' | 'failed';
+  currentStep: string;
+  completedChapters: number;
+  totalChapters: number;
+  percentComplete: number;
+  estimatedTimeRemaining?: string;
+  error?: string;
 }
 
-interface ChapterOutline {
-  title: string;
-  summary: string;
-}
-
-class NovelGenerationService {
-  private openai: OpenAI;
+export class NovelGenerationService extends EventEmitter {
+  private aiService: AdvancedAIService;
+  private activeJobs: Map<string, IGenerationJob> = new Map();
 
   constructor() {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY is required');
+    super();
+    this.aiService = new AdvancedAIService();
+  }
+
+  /**
+   * Start a complete novel generation job
+   */
+  async startNovelGeneration(userId: string, request: NovelGenerationRequest): Promise<string> {
+    // Validate the request
+    const validation = this.aiService.validateNovelRequest(request);
+    if (!validation.valid) {
+      throw new Error(`Invalid request: ${validation.errors.join(', ')}`);
     }
 
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      timeout: 120000,
-      maxRetries: 3
+    // Create the novel record
+    const novel = new Novel({
+      userId,
+      title: request.title,
+      genre: request.genre,
+      subgenre: request.subgenre,
+      targetWordCount: request.wordCount,
+      summary: request.summary,
+      characterDescriptions: request.characterDescriptions || '',
+      plotOutline: request.plotOutline || '',
+      tone: request.tone || '',
+      style: request.style || '',
+      status: 'generating',
+      progress: 0,
+      createdAt: new Date(),
+      updatedAt: new Date()
     });
 
-    logger.info('NovelGenerationService initialized');
-  }
-
-  /**
-   * Start a new novel generation job
-   * Returns job ID for tracking progress
-   */
-  async startGeneration(params: GenerationParams): Promise<string> {
-    const jobId = uuidv4();
-    const novelId = uuidv4();
-
-    try {
-      // Validate parameters
-      this.validateParams(params);
-
-      // Create novel record
-      const novel = await Novel.create({
-        _id: novelId,
-        title: params.title,
-        genre: params.genre,
-        subgenre: params.subgenre,
-        synopsis: params.synopsis,
-        wordCount: params.wordCount,
-        chapters: params.chapters,
-        targetChapterLength: params.targetChapterLength,
-        wordCountVariance: params.wordCountVariance,
-        fictionLength: params.fictionLength,
-        status: 'generating',
-        createdAt: new Date()
-      });
-
-      // Create job record with initial status
-      const job = await Job.create({
-        _id: jobId,
-        novelId,
-        status: 'pending',
-        parameters: params,
-        currentChapter: 0,
-        totalChapters: params.chapters,
-        progress: 0,
-        startTime: new Date(),
-        lastActivity: new Date()
-      });
-
-      logger.info(`Started generation job ${jobId} for novel ${novelId}`);
-
-      // Process first step immediately (don't wait)
-      setImmediate(() => this.processNextStep(jobId));
-
-      return jobId;
-
-    } catch (error) {
-      logger.error('Failed to start generation:', error);
-      throw new Error('Failed to start novel generation');
-    }
-  }
-
-  /**
-   * Process the next step for a job
-   * This is called repeatedly until job is complete
-   */
-  async processNextStep(jobId: string): Promise<void> {
-    try {
-      const job = await Job.findById(jobId);
-      if (!job) {
-        logger.error(`Job ${jobId} not found`);
-        return;
-      }
-
-      // Update last activity
-      job.lastActivity = new Date();
-      await job.save();
-
-      switch (job.status) {
-        case 'pending':
-          await this.generateOutline(jobId);
-          break;
-        case 'outline':
-          await this.generateNextChapter(jobId);
-          break;
-        case 'generating':
-          await this.generateNextChapter(jobId);
-          break;
-        default:
-          logger.info(`Job ${jobId} is in terminal state: ${job.status}`);
-          return;
-      }
-
-    } catch (error) {
-      logger.error(`Error processing job ${jobId}:`, error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      await this.markJobFailed(jobId, errorMessage);
-    }
-  }
-
-  /**
-   * Generate outline for the novel
-   */
-  private async generateOutline(jobId: string): Promise<void> {
-    const job = await Job.findById(jobId);
-    if (!job) throw new Error('Job not found');
-
-    const novel = await Novel.findById(job.novelId);
-    if (!novel) throw new Error('Novel not found');
-
-    logger.info(`Generating outline for job ${jobId}`);
-
-    // Update job status
-    job.status = 'outline';
-    job.progress = 5;
-    await job.save();
-
-    // Generate outline using OpenAI
-    const genreInfo = genreInstructions[job.parameters.genre]?.[job.parameters.subgenre] || '';
-    
-    const prompt = `Create a detailed chapter outline for a ${job.parameters.fictionLength} ${job.parameters.genre} novel.
-
-Title: ${job.parameters.title}
-Genre: ${job.parameters.genre} - ${job.parameters.subgenre}
-Synopsis: ${job.parameters.synopsis}
-Target Length: ${job.parameters.wordCount} words
-Number of Chapters: ${job.parameters.chapters}
-
-Genre Guidelines:
-${genreInfo}
-
-Create exactly ${job.parameters.chapters} chapter outlines. Each should have:
-- A compelling chapter title
-- A 2-3 sentence summary of what happens
-
-Format as JSON array:
-[{"title": "Chapter Title", "summary": "What happens in this chapter..."}]`;
-
-    const response = await this.openai.chat.completions.create({
-      model: 'gpt-4',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.8,
-      max_tokens: 4000
-    });
-
-    const outlineText = response.choices[0]?.message?.content;
-    if (!outlineText) throw new Error('Failed to generate outline');
-
-    let outline: ChapterOutline[];
-    try {
-      outline = JSON.parse(outlineText);
-    } catch {
-      throw new Error('Invalid outline format received');
-    }
-
-    // Save outline to novel
-    novel.outline = outline;
     await novel.save();
 
-    // Update job to start generating chapters
-    job.status = 'generating';
-    job.progress = 10;
-    job.currentChapter = 0;
-    await job.save();
-
-    logger.info(`Generated outline with ${outline.length} chapters for job ${jobId}`);
-
-    // Schedule next step
-    setImmediate(() => this.processNextStep(jobId));
-  }
-
-  /**
-   * Generate the next chapter
-   */
-  private async generateNextChapter(jobId: string): Promise<void> {
-    const job = await Job.findById(jobId);
-    if (!job) throw new Error('Job not found');
-
-    const novel = await Novel.findById(job.novelId);
-    if (!novel) throw new Error('Novel not found');
-
-    const nextChapterNum = job.currentChapter + 1;
-    
-    if (nextChapterNum > job.totalChapters) {
-      // All chapters complete
-      await this.completeGeneration(jobId);
-      return;
-    }
-
-    logger.info(`Generating chapter ${nextChapterNum} for job ${jobId}`);
-
-    // Get chapter outline
-    const chapterOutline = novel.outline?.[nextChapterNum - 1];
-    if (!chapterOutline) throw new Error('Chapter outline not found');
-
-    // Get previous chapters for context
-    const previousChapters = await Chapter.find({ 
-      novelId: job.novelId 
-    }).sort({ chapterNumber: 1 }).limit(3);
-
-    // Build context from previous chapters
-    const context = previousChapters.length > 0 
-      ? `Previous chapters context:\n${previousChapters.map(ch => 
-          `Chapter ${ch.chapterNumber}: ${ch.summary || ch.content.substring(0, 200)}...`
-        ).join('\n')}`
-      : '';
-
-    // Calculate target word count for this chapter
-    const baseLength = Math.floor(job.parameters.targetChapterLength);
-    const variance = job.parameters.wordCountVariance / 100;
-    const minLength = Math.floor(baseLength * (1 - variance));
-    const maxLength = Math.floor(baseLength * (1 + variance));
-
-    // Generate chapter content
-    const genreInfo = genreInstructions[job.parameters.genre]?.[job.parameters.subgenre] || '';
-    
-    const prompt = `Write Chapter ${nextChapterNum} of "${job.parameters.title}".
-
-${context}
-
-Chapter Outline:
-Title: ${chapterOutline.title}
-Summary: ${chapterOutline.summary}
-
-Requirements:
-- Length: ${minLength}-${maxLength} words
-- Genre: ${job.parameters.genre} - ${job.parameters.subgenre}
-- Follow the chapter outline but expand with rich detail, dialogue, and scene development
-- Maintain consistency with previous chapters
-- Use engaging, immersive prose appropriate for the genre
-
-Genre Guidelines:
-${genreInfo}
-
-Write the complete chapter content:`;
-
-    const response = await this.openai.chat.completions.create({
-      model: 'gpt-4',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.8,
-      max_tokens: 4000
+    // Create the generation job
+    const job = new GenerationJob({
+      novelId: novel._id,
+      userId,
+      status: 'pending',
+      currentStep: 'initializing',
+      totalChapters: Math.ceil(request.wordCount / 3000),
+      completedChapters: 0,
+      percentComplete: 0,
+      createdAt: new Date(),
+      updatedAt: new Date()
     });
 
-    const chapterContent = response.choices[0]?.message?.content;
-    if (!chapterContent) throw new Error('Failed to generate chapter content');
-
-    const wordCount = chapterContent.split(/\s+/).length;
-
-    // Save chapter
-    await Chapter.create({
-      novelId: job.novelId,
-      chapterNumber: nextChapterNum,
-      title: chapterOutline.title,
-      content: chapterContent,
-      wordCount,
-      summary: chapterOutline.summary,
-      createdAt: new Date()
-    });
-
-    // Update job progress
-    const progress = 10 + ((nextChapterNum / job.totalChapters) * 85);
-    job.currentChapter = nextChapterNum;
-    job.progress = Math.round(progress);
     await job.save();
 
-    logger.info(`Completed chapter ${nextChapterNum} (${wordCount} words) for job ${jobId}`);
+    // Start the generation process asynchronously
+    this.processNovelGeneration((job as any)._id.toString(), (novel as any)._id.toString(), request);
 
-    // Schedule next chapter generation
-    setImmediate(() => this.processNextStep(jobId));
+    return (job as any)._id.toString();
   }
 
   /**
-   * Complete the generation process
+   * Get the status of a generation job
    */
-  private async completeGeneration(jobId: string): Promise<void> {
-    const job = await Job.findById(jobId);
-    if (!job) throw new Error('Job not found');
-
-    const novel = await Novel.findById(job.novelId);
-    if (!novel) throw new Error('Novel not found');
-
-    // Update records
-    job.status = 'completed';
-    job.progress = 100;
-    await job.save();
-
-    novel.status = 'completed';
-    novel.completedAt = new Date();
-    await novel.save();
-
-    logger.info(`Completed generation for job ${jobId}`);
-  }
-
-  /**
-   * Mark job as failed
-   */
-  private async markJobFailed(jobId: string, error: string): Promise<void> {
-    try {
-      const job = await Job.findById(jobId);
-      if (job) {
-        job.status = 'failed';
-        job.error = error;
-        await job.save();
-      }
-
-      const novel = await Novel.findById(job?.novelId);
-      if (novel) {
-        novel.status = 'failed';
-        await novel.save();
-      }
-
-      logger.error(`Job ${jobId} failed: ${error}`);
-    } catch (err) {
-      logger.error(`Failed to mark job ${jobId} as failed:`, err);
+  async getGenerationProgress(jobId: string): Promise<GenerationProgress> {
+    const job = await GenerationJob.findById(jobId);
+    if (!job) {
+      throw new Error('Generation job not found');
     }
-  }
 
-  /**
-   * Get job status and progress
-   */
-  async getJobStatus(jobId: string) {
-    const job = await Job.findById(jobId);
-    if (!job) throw new Error('Job not found');
-
-    const novel = await Novel.findById(job.novelId);
-    
     return {
       jobId,
-      novelId: job.novelId,
       status: job.status,
-      progress: job.progress,
-      currentChapter: job.currentChapter,
+      currentStep: job.currentStep,
+      completedChapters: job.completedChapters,
       totalChapters: job.totalChapters,
-      startTime: job.startTime,
-      lastActivity: job.lastActivity,
-      error: job.error,
-      novel: novel ? {
-        title: novel.title,
-        genre: novel.genre,
-        subgenre: novel.subgenre,
-        status: novel.status
-      } : null
+      percentComplete: job.percentComplete,
+      estimatedTimeRemaining: job.estimatedTimeRemaining,
+      error: job.error
     };
   }
 
   /**
-   * Resume incomplete jobs (called on server startup)
+   * Cancel a generation job
    */
-  async resumeIncompleteJobs(): Promise<void> {
+  async cancelGeneration(jobId: string): Promise<void> {
+    const job = await GenerationJob.findById(jobId);
+    if (!job) {
+      throw new Error('Generation job not found');
+    }
+
+    if (job.status === 'completed' || job.status === 'failed') {
+      throw new Error('Cannot cancel completed or failed job');
+    }
+
+    job.status = 'failed';
+    job.error = 'Cancelled by user';
+    job.updatedAt = new Date();
+    await job.save();
+
+    // Remove from active jobs
+    this.activeJobs.delete(jobId);
+
+    this.emit('jobCancelled', jobId);
+  }
+
+  /**
+   * Process the novel generation (runs asynchronously)
+   */
+  private async processNovelGeneration(
+    jobId: string, 
+    novelId: string, 
+    request: NovelGenerationRequest
+  ): Promise<void> {
+    const job = await GenerationJob.findById(jobId);
+    const novel = await Novel.findById(novelId);
+    
+    if (!job || !novel) {
+      throw new Error('Job or novel not found');
+    }
+
     try {
-      const incompleteJobs = await Job.find({
-        status: { $in: ['pending', 'outline', 'generating'] },
-        lastActivity: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Last 24 hours
+      // Step 1: Generate novel outline
+      await this.updateJobProgress(job, 'generating_outline', 'Creating novel outline...', 5);
+      
+      const outline = await this.aiService.generateNovelOutline(request);
+      
+      // Update novel with outline data
+      novel.title = outline.title;
+      novel.summary = outline.summary;
+      novel.characters = outline.characters;
+      novel.themes = outline.themes;
+      novel.plotPoints = outline.plotPoints;
+      novel.chapterOutlines = outline.chapters;
+      await novel.save();
+
+      // Step 2: Generate chapters
+      await this.updateJobProgress(job, 'generating_chapters', 'Generating chapters...', 10);
+
+      const chapters: string[] = [];
+      const chapterWordCount = Math.floor(request.wordCount / outline.chapters.length);
+
+      for (let i = 0; i < outline.chapters.length; i++) {
+        const chapterOutline = outline.chapters[i];
+        
+        await this.updateJobProgress(
+          job, 
+          'generating_chapters', 
+          `Writing Chapter ${i + 1}: ${chapterOutline.title}`,
+          10 + (80 * (i / outline.chapters.length))
+        );
+
+        const chapterContent = await this.aiService.generateChapter({
+          novelId: novelId,
+          chapterNumber: i + 1,
+          previousChapters: chapters.slice(-2), // Last 2 chapters for context
+          plotOutline: `${outline.summary}\n\nChapter ${i + 1}: ${chapterOutline.summary}\nKey Events: ${chapterOutline.keyEvents.join(', ')}`,
+          characterDescriptions: outline.characters.map(c => `${c.name}: ${c.description}`).join('\n'),
+          wordCount: chapterWordCount,
+          genre: request.genre,
+          subgenre: request.subgenre
+        });
+
+        // Save the chapter
+        const chapter = new Chapter({
+          novelId: novelId,
+          chapterNumber: i + 1,
+          title: chapterOutline.title,
+          content: chapterContent,
+          wordCount: this.countWords(chapterContent),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+
+        await chapter.save();
+        chapters.push(chapterContent);
+
+        // Update job progress
+        job.completedChapters = i + 1;
+        job.percentComplete = 10 + (80 * ((i + 1) / outline.chapters.length));
+        await job.save();
+
+        // Emit progress event
+        this.emit('chapterCompleted', {
+          jobId,
+          novelId,
+          chapterNumber: i + 1,
+          chapterTitle: chapterOutline.title,
+          completedChapters: i + 1,
+          totalChapters: outline.chapters.length
+        });
+
+        // Small delay to prevent rate limiting
+        await this.delay(1000);
+      }
+
+      // Step 3: Generate book blurb
+      await this.updateJobProgress(job, 'generating_chapters', 'Creating book description...', 95);
+      
+      const blurb = await this.aiService.generateBookBlurb(
+        outline.title,
+        outline.summary,
+        outline.characters,
+        outline.themes,
+        request.genre,
+        request.subgenre
+      );
+
+      // Final updates
+      novel.description = blurb;
+      novel.status = 'completed';
+      novel.progress = 100;
+      novel.completedAt = new Date();
+      novel.totalWordCount = chapters.reduce((total, chapter) => total + this.countWords(chapter), 0);
+      await novel.save();
+
+      await this.updateJobProgress(job, 'completed', 'Novel generation completed!', 100);
+
+      this.emit('novelCompleted', {
+        jobId,
+        novelId,
+        title: outline.title,
+        totalChapters: outline.chapters.length,
+        totalWordCount: novel.totalWordCount
       });
 
-      logger.info(`Found ${incompleteJobs.length} incomplete jobs to resume`);
-
-      for (const job of incompleteJobs) {
-        logger.info(`Resuming job ${job._id}`);
-        setImmediate(() => this.processNextStep(job._id));
-      }
     } catch (error) {
-      logger.error('Failed to resume incomplete jobs:', error);
+      console.error('Error during novel generation:', error);
+      
+      job.status = 'failed';
+      job.error = error instanceof Error ? error.message : 'Unknown error occurred';
+      job.updatedAt = new Date();
+      await job.save();
+
+      novel.status = 'failed';
+      await novel.save();
+
+      this.emit('jobFailed', {
+        jobId,
+        novelId,
+        error: job.error
+      });
+    } finally {
+      this.activeJobs.delete(jobId);
     }
   }
 
   /**
-   * Create a progress stream for real-time updates
+   * Generate additional chapters for an existing novel
    */
-  createProgressStream(jobId: string) {
-    // For now, return a simple implementation that polls the database
-    // In a production environment, you might want to use Redis streams or WebSockets
-    const EventEmitter = require('events');
-    const emitter = new EventEmitter();
-    
-    // Poll for updates every 2 seconds
-    const pollInterval = setInterval(async () => {
-      try {
-        const status = await this.getJobStatus(jobId);
-        emitter.emit('data', {
-          type: 'progress',
-          data: status,
-          timestamp: new Date()
-        });
-        
-        // Stop polling if job is complete or failed
-        if (status.status === 'completed' || status.status === 'failed') {
-          clearInterval(pollInterval);
-          emitter.emit('end');
-        }
-      } catch (error) {
-        logger.error(`Error polling job ${jobId}:`, error);
-        clearInterval(pollInterval);
-        emitter.emit('error', error);
-      }
-    }, 2000);
-    
-    // Clean up after 30 minutes
-    setTimeout(() => {
-      clearInterval(pollInterval);
-      emitter.emit('end');
-    }, 30 * 60 * 1000);
-    
-    return emitter;
+  async generateAdditionalChapters(
+    novelId: string,
+    startChapter: number,
+    endChapter: number
+  ): Promise<string> {
+    const novel = await Novel.findById(novelId);
+    if (!novel) {
+      throw new Error('Novel not found');
+    }
+
+    // Get existing chapters for context
+    const existingChapters = await Chapter.find({ novelId })
+      .sort({ chapterNumber: 1 });
+
+    const job = new GenerationJob({
+      novelId,
+      userId: novel.userId,
+      status: 'pending',
+      currentStep: 'generating_additional_chapters',
+      totalChapters: endChapter - startChapter + 1,
+      completedChapters: 0,
+      percentComplete: 0,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    await job.save();
+
+    // Start generation process
+    this.processAdditionalChapters((job as any)._id.toString(), novel, startChapter, endChapter, existingChapters);
+
+    return (job as any)._id.toString();
   }
 
   /**
-   * Validate generation parameters
+   * Enhance an existing chapter
    */
-  private validateParams(params: GenerationParams): void {
-    if (!params.title?.trim()) throw new Error('Title is required');
-    if (!params.synopsis?.trim()) throw new Error('Synopsis is required');
-    if (params.chapters < 1 || params.chapters > 100) throw new Error('Chapters must be between 1 and 100');
-    if (params.wordCount < 1000 || params.wordCount > 200000) throw new Error('Word count must be between 1,000 and 200,000');
+  async enhanceChapter(
+    chapterId: string,
+    enhancementType: 'dialogue' | 'description' | 'pacing' | 'character_development' | 'overall'
+  ): Promise<string> {
+    const chapter = await Chapter.findById(chapterId);
+    if (!chapter) {
+      throw new Error('Chapter not found');
+    }
+
+    const novel = await Novel.findById(chapter.novelId);
+    if (!novel) {
+      throw new Error('Novel not found');
+    }
+
+    const enhancedContent = await this.aiService.enhanceChapter(
+      chapter.content,
+      novel.genre,
+      novel.subgenre,
+      enhancementType
+    );
+
+    // Save the enhanced version (keep original as backup)
+    chapter.originalContent = chapter.content;
+    chapter.content = enhancedContent;
+    chapter.wordCount = this.countWords(enhancedContent);
+    chapter.enhancementType = enhancementType;
+    chapter.updatedAt = new Date();
+    await chapter.save();
+
+    return enhancedContent;
+  }
+
+  /**
+   * Get available genres and subgenres
+   */
+  getAvailableGenres(): Record<string, string[]> {
+    return this.aiService.getAvailableGenres();
+  }
+
+  /**
+   * Estimate generation time and cost
+   */
+  estimateGeneration(wordCount: number) {
+    return this.aiService.estimateGenerationMetrics(wordCount);
+  }
+
+  /**
+   * Process additional chapters generation
+   */
+  private async processAdditionalChapters(
+    jobId: string,
+    novel: any,
+    startChapter: number,
+    endChapter: number,
+    existingChapters: any[]
+  ): Promise<void> {
+    const job = await GenerationJob.findById(jobId);
+    if (!job) return;
+
+    try {
+      const chapterWordCount = Math.floor(novel.targetWordCount / (novel.chapterOutlines?.length || 20));
+      const contextChapters = existingChapters
+        .slice(-3)
+        .map(c => c.content);
+
+      for (let chapterNum = startChapter; chapterNum <= endChapter; chapterNum++) {
+        await this.updateJobProgress(
+          job,
+          'generating_chapters',
+          `Writing Chapter ${chapterNum}`,
+          (chapterNum - startChapter) / (endChapter - startChapter + 1) * 100
+        );
+
+        const chapterContent = await this.aiService.generateChapter({
+          novelId: novel._id.toString(),
+          chapterNumber: chapterNum,
+          previousChapters: contextChapters,
+          plotOutline: novel.plotOutline || novel.summary,
+          characterDescriptions: novel.characterDescriptions || 
+            (novel.characters?.map((c: any) => `${c.name}: ${c.description}`).join('\n') || ''),
+          wordCount: chapterWordCount,
+          genre: novel.genre,
+          subgenre: novel.subgenre
+        });
+
+        const chapter = new Chapter({
+          novelId: novel._id,
+          chapterNumber: chapterNum,
+          title: `Chapter ${chapterNum}`,
+          content: chapterContent,
+          wordCount: this.countWords(chapterContent),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+
+        await chapter.save();
+        contextChapters.push(chapterContent);
+
+        job.completedChapters++;
+        job.percentComplete = (job.completedChapters / job.totalChapters) * 100;
+        await job.save();
+
+        this.emit('chapterCompleted', {
+          jobId,
+          novelId: novel._id.toString(),
+          chapterNumber: chapterNum,
+          completedChapters: job.completedChapters,
+          totalChapters: job.totalChapters
+        });
+
+        await this.delay(1000);
+      }
+
+      await this.updateJobProgress(job, 'completed', 'Additional chapters completed!', 100);
+
+      this.emit('additionalChaptersCompleted', {
+        jobId,
+        novelId: novel._id.toString(),
+        startChapter,
+        endChapter
+      });
+
+    } catch (error) {
+      console.error('Error generating additional chapters:', error);
+      
+      job.status = 'failed';
+      job.error = error instanceof Error ? error.message : 'Unknown error occurred';
+      await job.save();
+
+      this.emit('jobFailed', {
+        jobId,
+        novelId: novel._id.toString(),
+        error: job.error
+      });
+    }
+  }
+
+  /**
+   * Update job progress
+   */
+  private async updateJobProgress(
+    job: any,
+    status: string,
+    currentStep: string,
+    percentComplete: number
+  ): Promise<void> {
+    job.status = status;
+    job.currentStep = currentStep;
+    job.percentComplete = Math.round(percentComplete);
+    job.updatedAt = new Date();
+    
+    if (percentComplete > 0 && percentComplete < 100) {
+      const remainingPercent = 100 - percentComplete;
+      const elapsedTime = Date.now() - job.createdAt.getTime();
+      const estimatedTotal = (elapsedTime / percentComplete) * 100;
+      const estimatedRemaining = estimatedTotal - elapsedTime;
+      job.estimatedTimeRemaining = this.formatDuration(estimatedRemaining);
+    }
+    
+    await job.save();
+
+    this.emit('progressUpdate', {
+      jobId: job._id.toString(),
+      status,
+      currentStep,
+      percentComplete,
+      estimatedTimeRemaining: job.estimatedTimeRemaining
+    });
+  }
+
+  /**
+   * Count words in text
+   */
+  private countWords(text: string): number {
+    return text.trim().split(/\s+/).filter(word => word.length > 0).length;
+  }
+
+  /**
+   * Format duration in milliseconds to readable string
+   */
+  private formatDuration(ms: number): string {
+    const minutes = Math.floor(ms / 60000);
+    const hours = Math.floor(minutes / 60);
+    
+    if (hours > 0) {
+      return `${hours}h ${minutes % 60}m`;
+    }
+    return `${minutes}m`;
+  }
+
+  /**
+   * Add delay
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
-
-export default NovelGenerationService;

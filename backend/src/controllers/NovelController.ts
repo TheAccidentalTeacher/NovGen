@@ -1,64 +1,97 @@
 import { Request, Response } from 'express';
-import { body, validationResult } from 'express-validator';
-import NovelGenerationService from '../services/NovelGenerationService';
-import { Novel, Chapter, Job } from '../models/index';
-import { genreInstructions } from '../../shared/genreInstructions';
-import winston from 'winston';
+import { NovelGenerationService } from '../services/NovelGenerationService';
+import { Novel, Chapter, GenerationJob, User } from '../models/index.js';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcrypt';
 
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.simple(),
-  transports: [new winston.transports.Console()]
-});
+// Extend Express Request to include user
+interface AuthenticatedRequest extends Request {
+  user?: { id: string; email: string };
+}
 
-class NovelController {
+export class NovelController {
   private generationService: NovelGenerationService;
 
-  constructor(generationService?: NovelGenerationService) {
-    this.generationService = generationService || new NovelGenerationService();
+  constructor() {
+    this.generationService = new NovelGenerationService();
   }
 
   /**
    * Get available genres and subgenres
    */
-  getGenres = async (req: Request, res: Response): Promise<void> => {
+  async getGenres(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      // Transform genre instructions into client-friendly format
-      const genres = Object.keys(genreInstructions).map(genreKey => ({
-        id: genreKey,
-        name: this.formatGenreName(genreKey),
-        subgenres: Object.keys(genreInstructions[genreKey]).map(subgenreKey => ({
-          id: subgenreKey,
-          name: this.formatGenreName(subgenreKey),
-          description: genreInstructions[genreKey][subgenreKey].substring(0, 100) + '...'
-        }))
-      }));
-
+      const genres = this.generationService.getAvailableGenres();
       res.json({
         success: true,
         data: genres
       });
     } catch (error) {
-      logger.error('Error fetching genres:', error);
+      console.error('Error getting genres:', error);
       res.status(500).json({
         success: false,
-        error: 'Failed to fetch genres'
+        error: 'Failed to get genres'
       });
     }
-  };
+  }
+
+  /**
+   * Estimate generation time and cost
+   */
+  async estimateGeneration(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { wordCount } = req.body;
+      
+      if (!wordCount || wordCount < 10000 || wordCount > 200000) {
+        res.status(400).json({
+          success: false,
+          error: 'Word count must be between 10,000 and 200,000'
+        });
+        return;
+      }
+
+      const estimation = this.generationService.estimateGeneration(wordCount);
+      res.json({
+        success: true,
+        data: estimation
+      });
+    } catch (error) {
+      console.error('Error estimating generation:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to estimate generation'
+      });
+    }
+  }
 
   /**
    * Start novel generation
    */
-  generateNovel = async (req: Request, res: Response): Promise<void> => {
+  async generateNovel(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      // Validate request
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        res.status(400).json({
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({
           success: false,
-          error: 'Validation failed',
-          details: errors.array()
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      // Check user's generation limits
+      const user = await User.findById(userId);
+      if (!user) {
+        res.status(404).json({
+          success: false,
+          error: 'User not found'
+        });
+        return;
+      }
+
+      if (user.generationsUsed >= user.generationsLimit) {
+        res.status(403).json({
+          success: false,
+          error: 'Generation limit exceeded. Please upgrade your subscription.'
         });
         return;
       }
@@ -67,359 +100,758 @@ class NovelController {
         title,
         genre,
         subgenre,
-        synopsis,
+        summary,
         wordCount,
-        chapters,
-        targetChapterLength,
-        wordCountVariance,
-        fictionLength
+        characterDescriptions,
+        plotOutline,
+        tone,
+        style
       } = req.body;
 
-      // Start generation
-      const jobId = await this.generationService.startGeneration({
+      const generationRequest = {
         title,
         genre,
         subgenre,
-        synopsis,
-        wordCount: parseInt(wordCount),
-        chapters: parseInt(chapters),
-        targetChapterLength: parseInt(targetChapterLength),
-        wordCountVariance: parseInt(wordCountVariance),
-        fictionLength
-      });
+        summary,
+        wordCount,
+        characterDescriptions,
+        plotOutline,
+        tone,
+        style
+      };
+
+      const jobId = await this.generationService.startNovelGeneration(userId, generationRequest);
+
+      // Update user's generation count
+      user.generationsUsed += 1;
+      await user.save();
 
       res.json({
         success: true,
         data: {
           jobId,
-          message: 'Novel generation started',
-          estimatedTime: `${Math.ceil(chapters * 2)} minutes`
+          message: 'Novel generation started successfully'
         }
       });
-
     } catch (error) {
-      logger.error('Error starting generation:', error);
+      console.error('Error starting novel generation:', error);
       res.status(500).json({
         success: false,
-        error: (error as Error)?.message || 'Failed to start novel generation'
+        error: error instanceof Error ? error.message : 'Failed to start novel generation'
       });
     }
-  };
+  }
 
   /**
-   * Get generation job status
+   * Get generation progress
    */
-  getJobStatus = async (req: Request, res: Response): Promise<void> => {
+  async getGenerationProgress(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { jobId } = req.params;
+      const userId = req.user?.id;
 
-      if (!jobId) {
-        res.status(400).json({
+      if (!userId) {
+        res.status(401).json({
           success: false,
-          error: 'Job ID is required'
+          error: 'Authentication required'
         });
         return;
       }
 
-      const status = await this.generationService.getJobStatus(jobId);
-
-      res.json({
-        success: true,
-        data: status
-      });
-
-    } catch (error) {
-      logger.error('Error fetching job status:', error);
-      
-      if (error instanceof Error && error.message.includes('not found')) {
+      // Verify the job belongs to the user
+      const job = await GenerationJob.findById(jobId);
+      if (!job) {
         res.status(404).json({
           success: false,
-          error: 'Job not found'
+          error: 'Generation job not found'
         });
-      } else {
-        res.status(500).json({
-          success: false,
-          error: 'Failed to fetch job status'
-        });
+        return;
       }
+
+      if (job.userId !== userId) {
+        res.status(403).json({
+          success: false,
+          error: 'Access denied'
+        });
+        return;
+      }
+
+      const progress = await this.generationService.getGenerationProgress(jobId);
+      res.json({
+        success: true,
+        data: progress
+      });
+    } catch (error) {
+      console.error('Error getting generation progress:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get generation progress'
+      });
     }
-  };
+  }
 
   /**
-   * Stream generation progress
+   * Cancel generation
    */
-  streamProgress = async (req: Request, res: Response): Promise<void> => {
+  async cancelGeneration(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
       const { jobId } = req.params;
+      const userId = req.user?.id;
 
-      if (!jobId) {
-        res.status(400).json({
+      if (!userId) {
+        res.status(401).json({
           success: false,
-          error: 'Job ID is required'
+          error: 'Authentication required'
         });
         return;
       }
 
-      // Set up Server-Sent Events
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Cache-Control'
+      // Verify the job belongs to the user
+      const job = await GenerationJob.findById(jobId);
+      if (!job) {
+        res.status(404).json({
+          success: false,
+          error: 'Generation job not found'
+        });
+        return;
+      }
+
+      if (job.userId !== userId) {
+        res.status(403).json({
+          success: false,
+          error: 'Access denied'
+        });
+        return;
+      }
+
+      await this.generationService.cancelGeneration(jobId);
+      res.json({
+        success: true,
+        message: 'Generation cancelled successfully'
       });
-
-      // Get progress stream
-      const stream = this.generationService.createProgressStream(jobId);
-
-      // Send initial connection message
-      res.write(`data: ${JSON.stringify({ 
-        type: 'connected', 
-        jobId, 
-        timestamp: new Date() 
-      })}\n\n`);
-
-      // Listen for progress events
-      const progressHandler = (data: any) => {
-        res.write(`data: ${JSON.stringify({ 
-          type: 'progress', 
-          ...data 
-        })}\n\n`);
-      };
-
-      stream.on('progress', progressHandler);
-
-      // Handle client disconnect
-      req.on('close', () => {
-        stream.removeListener('progress', progressHandler);
-        res.end();
-      });
-
-      // Send periodic heartbeat to keep connection alive
-      const heartbeat = setInterval(() => {
-        res.write(`data: ${JSON.stringify({ 
-          type: 'heartbeat', 
-          timestamp: new Date() 
-        })}\n\n`);
-      }, 30000); // Every 30 seconds
-
-      req.on('close', () => {
-        clearInterval(heartbeat);
-      });
-
     } catch (error) {
-      logger.error('Error setting up progress stream:', error);
+      console.error('Error cancelling generation:', error);
       res.status(500).json({
         success: false,
-        error: 'Failed to set up progress stream'
+        error: error instanceof Error ? error.message : 'Failed to cancel generation'
       });
     }
-  };
+  }
 
   /**
-   * Calculate chapter configuration
+   * Get user's novels
    */
-  calculateChapters = async (req: Request, res: Response): Promise<void> => {
+  async getUserNovels(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      const { wordCount, targetChapterLength } = req.query;
-
-      const totalWords = parseInt(wordCount as string);
-      const chapterLength = parseInt(targetChapterLength as string);
-
-      if (!totalWords || !chapterLength) {
-        res.status(400).json({
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({
           success: false,
-          error: 'Word count and target chapter length are required'
+          error: 'Authentication required'
         });
         return;
       }
 
-      if (totalWords < 10000 || totalWords > 500000) {
-        res.status(400).json({
-          success: false,
-          error: 'Word count must be between 10,000 and 500,000'
-        });
-        return;
-      }
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const skip = (page - 1) * limit;
 
-      if (chapterLength < 500 || chapterLength > 10000) {
-        res.status(400).json({
-          success: false,
-          error: 'Target chapter length must be between 500 and 10,000'
-        });
-        return;
-      }
+      const novels = await Novel.find({ userId })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .select('-chapterOutlines'); // Exclude large fields for list view
 
-      const chapters = Math.round(totalWords / chapterLength);
-      const actualChapterLength = Math.round(totalWords / chapters);
-      
-      let fictionLength: string;
-      if (totalWords < 40000) {
-        fictionLength = 'novella';
-      } else if (totalWords < 120000) {
-        fictionLength = 'novel';
-      } else {
-        fictionLength = 'epic';
-      }
+      const totalNovels = await Novel.countDocuments({ userId });
+      const totalPages = Math.ceil(totalNovels / limit);
 
       res.json({
         success: true,
         data: {
-          totalWords,
-          chapters,
-          targetChapterLength: chapterLength,
-          actualChapterLength,
-          fictionLength
-        }
-      });
-
-    } catch (error) {
-      logger.error('Error calculating chapters:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to calculate chapter configuration'
-      });
-    }
-  };
-
-  /**
-   * Upload and validate synopsis file
-   */
-  uploadSynopsis = async (req: Request, res: Response): Promise<void> => {
-    try {
-      if (!req.file) {
-        res.status(400).json({
-          success: false,
-          error: 'No file uploaded'
-        });
-        return;
-      }
-
-      const file = req.file;
-
-      // Validate file type
-      const allowedTypes = ['text/plain', 'text/markdown'];
-      if (!allowedTypes.includes(file.mimetype)) {
-        res.status(400).json({
-          success: false,
-          error: 'Only .txt and .md files are allowed'
-        });
-        return;
-      }
-
-      // Convert buffer to string
-      const content = file.buffer.toString('utf-8');
-
-      // Validate content length
-      if (content.length > 10000) {
-        res.status(400).json({
-          success: false,
-          error: 'Synopsis must be less than 10,000 characters'
-        });
-        return;
-      }
-
-      if (content.length < 50) {
-        res.status(400).json({
-          success: false,
-          error: 'Synopsis must be at least 50 characters'
-        });
-        return;
-      }
-
-      // Basic content validation
-      const wordCount = content.split(/\s+/).filter(word => word.length > 0).length;
-
-      res.json({
-        success: true,
-        data: {
-          content: content.trim(),
-          characterCount: content.length,
-          wordCount,
-          filename: file.originalname
-        }
-      });
-
-    } catch (error) {
-      logger.error('Error processing synopsis upload:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to process synopsis file'
-      });
-    }
-  };
-
-  /**
-   * Get novel details with chapters
-   */
-  getNovel = async (req: Request, res: Response): Promise<void> => {
-    try {
-      const { novelId } = req.params;
-
-      if (!novelId) {
-        res.status(400).json({
-          success: false,
-          error: 'Novel ID is required'
-        });
-        return;
-      }
-
-      // This would fetch from database - placeholder for now
-      res.json({
-        success: true,
-        data: {
-          message: 'Novel retrieval endpoint - implementation pending'
-        }
-      });
-
-    } catch (error) {
-      logger.error('Error fetching novel:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to fetch novel'
-      });
-    }
-  };
-
-  /**
-   * List user's novels
-   */
-  listNovels = async (req: Request, res: Response): Promise<void> => {
-    try {
-      const { page = 1, limit = 10, status, genre } = req.query;
-
-      // This would fetch from database with pagination - placeholder for now
-      res.json({
-        success: true,
-        data: {
-          novels: [],
+          novels,
           pagination: {
-            page: parseInt(page as string),
-            limit: parseInt(limit as string),
-            total: 0,
-            pages: 0
+            currentPage: page,
+            totalPages,
+            totalNovels,
+            hasNext: page < totalPages,
+            hasPrev: page > 1
           }
         }
       });
-
     } catch (error) {
-      logger.error('Error listing novels:', error);
+      console.error('Error getting user novels:', error);
       res.status(500).json({
         success: false,
-        error: 'Failed to list novels'
+        error: 'Failed to get novels'
       });
     }
-  };
+  }
 
   /**
-   * Helper method to format genre names for display
+   * Get specific novel
    */
-  private formatGenreName(key: string): string {
-    return key
-      .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(' ');
+  async getNovel(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { novelId } = req.params;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      const novel = await Novel.findById(novelId);
+      if (!novel) {
+        res.status(404).json({
+          success: false,
+          error: 'Novel not found'
+        });
+        return;
+      }
+
+      if (novel.userId !== userId) {
+        res.status(403).json({
+          success: false,
+          error: 'Access denied'
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: novel
+      });
+    } catch (error) {
+      console.error('Error getting novel:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get novel'
+      });
+    }
+  }
+
+  /**
+   * Get novel chapters
+   */
+  async getNovelChapters(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { novelId } = req.params;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      // Verify novel belongs to user
+      const novel = await Novel.findById(novelId);
+      if (!novel) {
+        res.status(404).json({
+          success: false,
+          error: 'Novel not found'
+        });
+        return;
+      }
+
+      if (novel.userId !== userId) {
+        res.status(403).json({
+          success: false,
+          error: 'Access denied'
+        });
+        return;
+      }
+
+      const chapters = await Chapter.find({ novelId })
+        .sort({ chapterNumber: 1 });
+
+      res.json({
+        success: true,
+        data: chapters
+      });
+    } catch (error) {
+      console.error('Error getting novel chapters:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get chapters'
+      });
+    }
+  }
+
+  /**
+   * Get specific chapter
+   */
+  async getChapter(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { chapterId } = req.params;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      const chapter = await Chapter.findById(chapterId);
+      if (!chapter) {
+        res.status(404).json({
+          success: false,
+          error: 'Chapter not found'
+        });
+        return;
+      }
+
+      // Verify chapter belongs to user's novel
+      const novel = await Novel.findById(chapter.novelId);
+      if (!novel || novel.userId !== userId) {
+        res.status(403).json({
+          success: false,
+          error: 'Access denied'
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: chapter
+      });
+    } catch (error) {
+      console.error('Error getting chapter:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get chapter'
+      });
+    }
+  }
+
+  /**
+   * Enhance chapter
+   */
+  async enhanceChapter(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { chapterId } = req.params;
+      const { enhancementType } = req.body;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      const validEnhancements = ['dialogue', 'description', 'pacing', 'character_development', 'overall'];
+      if (!enhancementType || !validEnhancements.includes(enhancementType)) {
+        res.status(400).json({
+          success: false,
+          error: 'Valid enhancement type required'
+        });
+        return;
+      }
+
+      const chapter = await Chapter.findById(chapterId);
+      if (!chapter) {
+        res.status(404).json({
+          success: false,
+          error: 'Chapter not found'
+        });
+        return;
+      }
+
+      // Verify chapter belongs to user's novel
+      const novel = await Novel.findById(chapter.novelId);
+      if (!novel || novel.userId !== userId) {
+        res.status(403).json({
+          success: false,
+          error: 'Access denied'
+        });
+        return;
+      }
+
+      const enhancedContent = await this.generationService.enhanceChapter(
+        chapterId,
+        enhancementType
+      );
+
+      res.json({
+        success: true,
+        data: {
+          enhancedContent,
+          message: 'Chapter enhanced successfully'
+        }
+      });
+    } catch (error) {
+      console.error('Error enhancing chapter:', error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to enhance chapter'
+      });
+    }
+  }
+
+  /**
+   * Generate additional chapters
+   */
+  async generateAdditionalChapters(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { novelId } = req.params;
+      const { startChapter, endChapter } = req.body;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      if (!startChapter || !endChapter || startChapter > endChapter) {
+        res.status(400).json({
+          success: false,
+          error: 'Valid start and end chapter numbers required'
+        });
+        return;
+      }
+
+      // Verify novel belongs to user
+      const novel = await Novel.findById(novelId);
+      if (!novel) {
+        res.status(404).json({
+          success: false,
+          error: 'Novel not found'
+        });
+        return;
+      }
+
+      if (novel.userId !== userId) {
+        res.status(403).json({
+          success: false,
+          error: 'Access denied'
+        });
+        return;
+      }
+
+      const jobId = await this.generationService.generateAdditionalChapters(
+        novelId,
+        startChapter,
+        endChapter
+      );
+
+      res.json({
+        success: true,
+        data: {
+          jobId,
+          message: 'Additional chapter generation started'
+        }
+      });
+    } catch (error) {
+      console.error('Error generating additional chapters:', error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to generate additional chapters'
+      });
+    }
+  }
+
+  /**
+   * Delete novel
+   */
+  async deleteNovel(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { novelId } = req.params;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      const novel = await Novel.findById(novelId);
+      if (!novel) {
+        res.status(404).json({
+          success: false,
+          error: 'Novel not found'
+        });
+        return;
+      }
+
+      if (novel.userId !== userId) {
+        res.status(403).json({
+          success: false,
+          error: 'Access denied'
+        });
+        return;
+      }
+
+      // Delete novel and all its chapters
+      await Chapter.deleteMany({ novelId });
+      await GenerationJob.deleteMany({ novelId });
+      await Novel.findByIdAndDelete(novelId);
+
+      res.json({
+        success: true,
+        message: 'Novel deleted successfully'
+      });
+    } catch (error) {
+      console.error('Error deleting novel:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to delete novel'
+      });
+    }
+  }
+
+  /**
+   * Export novel (as text or JSON)
+   */
+  async exportNovel(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { novelId } = req.params;
+      const { format } = req.query;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      const novel = await Novel.findById(novelId);
+      if (!novel) {
+        res.status(404).json({
+          success: false,
+          error: 'Novel not found'
+        });
+        return;
+      }
+
+      if (novel.userId !== userId) {
+        res.status(403).json({
+          success: false,
+          error: 'Access denied'
+        });
+        return;
+      }
+
+      const chapters = await Chapter.find({ novelId })
+        .sort({ chapterNumber: 1 });
+
+      if (format === 'json') {
+        res.json({
+          success: true,
+          data: {
+            novel,
+            chapters
+          }
+        });
+      } else {
+        // Export as text
+        let content = `${novel.title}\n\n`;
+        content += `${novel.description || novel.summary}\n\n`;
+        content += '='.repeat(50) + '\n\n';
+        
+        for (const chapter of chapters) {
+          content += `Chapter ${chapter.chapterNumber}: ${chapter.title}\n\n`;
+          content += chapter.content + '\n\n';
+          content += '-'.repeat(30) + '\n\n';
+        }
+
+        res.setHeader('Content-Type', 'text/plain');
+        res.setHeader('Content-Disposition', `attachment; filename="${novel.title}.txt"`);
+        res.send(content);
+      }
+    } catch (error) {
+      console.error('Error exporting novel:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to export novel'
+      });
+    }
+  }
+
+  /**
+   * User registration
+   */
+  async register(req: Request, res: Response): Promise<void> {
+    try {
+      const { email, password, name } = req.body;
+
+      if (!email || !password || !name) {
+        res.status(400).json({
+          success: false,
+          error: 'Email, password, and name are required'
+        });
+        return;
+      }
+
+      // Check if user already exists
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        res.status(409).json({
+          success: false,
+          error: 'User with this email already exists'
+        });
+        return;
+      }
+
+      // Hash password
+      const passwordHash = await bcrypt.hash(password, 12);
+
+      // Create user
+      const user = new User({
+        email,
+        passwordHash,
+        name
+      });
+
+      await user.save();
+
+      // Generate JWT token
+      const token = jwt.sign(
+        { id: user._id, email: user.email },
+        process.env.JWT_SECRET || 'fallback-secret',
+        { expiresIn: '7d' }
+      );
+
+      res.status(201).json({
+        success: true,
+        data: {
+          token,
+          user: {
+            id: user._id,
+            email: user.email,
+            name: user.name,
+            subscriptionTier: user.subscriptionTier,
+            generationsUsed: user.generationsUsed,
+            generationsLimit: user.generationsLimit
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error registering user:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to register user'
+      });
+    }
+  }
+
+  /**
+   * User login
+   */
+  async login(req: Request, res: Response): Promise<void> {
+    try {
+      const { email, password } = req.body;
+
+      if (!email || !password) {
+        res.status(400).json({
+          success: false,
+          error: 'Email and password are required'
+        });
+        return;
+      }
+
+      // Find user
+      const user = await User.findOne({ email });
+      if (!user) {
+        res.status(401).json({
+          success: false,
+          error: 'Invalid email or password'
+        });
+        return;
+      }
+
+      // Verify password
+      const isValidPassword = await bcrypt.compare(password, user.passwordHash);
+      if (!isValidPassword) {
+        res.status(401).json({
+          success: false,
+          error: 'Invalid email or password'
+        });
+        return;
+      }
+
+      // Update last login
+      user.lastLoginAt = new Date();
+      await user.save();
+
+      // Generate JWT token
+      const token = jwt.sign(
+        { id: user._id, email: user.email },
+        process.env.JWT_SECRET || 'fallback-secret',
+        { expiresIn: '7d' }
+      );
+
+      res.json({
+        success: true,
+        data: {
+          token,
+          user: {
+            id: user._id,
+            email: user.email,
+            name: user.name,
+            subscriptionTier: user.subscriptionTier,
+            generationsUsed: user.generationsUsed,
+            generationsLimit: user.generationsLimit
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error logging in user:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to log in'
+      });
+    }
+  }
+
+  /**
+   * Get user profile
+   */
+  async getProfile(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication required'
+        });
+        return;
+      }
+
+      const user = await User.findById(userId).select('-passwordHash');
+      if (!user) {
+        res.status(404).json({
+          success: false,
+          error: 'User not found'
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: user
+      });
+    } catch (error) {
+      console.error('Error getting user profile:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get user profile'
+      });
+    }
   }
 }
-
-export default NovelController;
