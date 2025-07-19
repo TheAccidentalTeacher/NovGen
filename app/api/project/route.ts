@@ -31,7 +31,10 @@ export async function POST(request: NextRequest) {
     logger.info('Creating new project');
     
     const body = await request.json();
+    console.log('📋 Request body received:', JSON.stringify(body, null, 2));
+    
     const { genre, subgenre, totalWordCount, numberOfChapters, chapterLength, premise } = body;
+    console.log('📋 Extracted fields:', { genre, subgenre, totalWordCount, numberOfChapters, chapterLength, premiseLength: premise?.length });
 
     // Validation
     if (!genre || !subgenre || !premise.trim()) {
@@ -76,16 +79,28 @@ export async function POST(request: NextRequest) {
     };
 
     // Save to database
+    console.log('💾 Getting projects collection...');
     const collection = await getProjectsCollection();
+    console.log('💾 Collection obtained, inserting project...');
+    
     await collection.insertOne(project);
+    console.log('✅ Project inserted successfully');
 
     logger.info('Project created successfully', { projectId, genre, subgenre, numberOfChapters });
 
     return NextResponse.json(project);
   } catch (error) {
+    console.error('❌ Full error details:', error);
     logger.error('Failed to create project', error as Error);
+    
+    // Return detailed error for debugging (temporarily)
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { 
+        error: 'Internal server error',
+        details: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      },
       { status: 500 }
     );
   }
