@@ -136,7 +136,7 @@ Focus on creating compelling character arcs that show clear progression and grow
           { role: 'user', content: userPrompt }
         ],
         temperature: 0.8,
-        max_tokens: 8000, // Increased for detailed summaries with character breakdowns
+        max_tokens: 16000, // Increased to handle large novels (35-55 chapters)
       });
 
       const content = response.choices[0]?.message?.content;
