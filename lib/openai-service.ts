@@ -15,7 +15,7 @@ export class OpenAIService {
 
     this.openai = new OpenAI({
       apiKey: apiKey,
-      timeout: 25000, // 25 second timeout to stay under Vercel limits
+      timeout: 60000, // 60 second timeout for outline generation
     });
     this.logger = logger;
   }
@@ -317,12 +317,23 @@ Focus on creating compelling character arcs that show clear progression and grow
     // Parse JSON response
     let outline: string[];
     try {
-      outline = JSON.parse(content);
+      // Clean the content to remove markdown code blocks if present
+      let cleanContent = content.trim();
+      if (cleanContent.startsWith('```json')) {
+        cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      } else if (cleanContent.startsWith('```')) {
+        cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      }
+      
+      outline = JSON.parse(cleanContent);
       if (!Array.isArray(outline) || outline.length !== numberOfChapters) {
         throw new Error(`Expected array of ${numberOfChapters} summaries, got ${outline?.length || 'invalid'}`);
       }
     } catch (parseError) {
-      this.logger.error('Failed to parse outline JSON', parseError as Error, { rawContent: content });
+      this.logger.error('Failed to parse outline JSON', parseError as Error, { 
+        rawContent: content.substring(0, 500) + '...',
+        cleanedContent: content.trim().startsWith('```') ? 'Found markdown blocks' : 'No markdown blocks'
+      });
       throw new Error('Invalid outline format received from AI');
     }
 

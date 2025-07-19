@@ -186,7 +186,14 @@ export async function POST(
     });
 
   } catch (error) {
-    logger.error('Failed to generate outline', error as Error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
+    logger.error('Failed to generate outline', error as Error, { 
+      projectId: id,
+      errorMessage,
+      errorStack: errorStack?.substring(0, 500) // Truncate stack trace
+    });
     
     // Reset project status on failure
     try {
@@ -205,7 +212,11 @@ export async function POST(
     }
 
     return NextResponse.json(
-      { error: 'Failed to generate outline' },
+      { 
+        error: 'Failed to generate outline',
+        details: errorMessage,
+        timestamp: new Date().toISOString()
+      },
       { status: 500 }
     );
   }
