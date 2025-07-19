@@ -37,13 +37,13 @@ export class NovelGenerationService extends EventEmitter {
       userId,
       title: request.title,
       genre: request.genre,
-      subgenre: request.subgenre,
-      targetWordCount: request.wordCount,
-      summary: request.summary,
-      characterDescriptions: request.characterDescriptions || '',
-      plotOutline: request.plotOutline || '',
+      subgenre: request.theme || 'general',
+      targetWordCount: request.chapterCount * 3000,
+      summary: request.description,
+      characterDescriptions: `${request.characterCount} main characters in ${request.setting}`,
+      plotOutline: `${request.genre} novel with ${request.tone} tone`,
       tone: request.tone || '',
-      style: request.style || '',
+      style: request.genre || '',
       status: 'generating',
       progress: 0,
       createdAt: new Date(),
@@ -58,7 +58,7 @@ export class NovelGenerationService extends EventEmitter {
       userId,
       status: 'pending',
       currentStep: 'initializing',
-      totalChapters: Math.ceil(request.wordCount / 3000),
+      totalChapters: request.chapterCount,
       completedChapters: 0,
       percentComplete: 0,
       createdAt: new Date(),
@@ -152,7 +152,7 @@ export class NovelGenerationService extends EventEmitter {
       await this.updateJobProgress(job, 'generating_chapters', 'Generating chapters...', 10);
 
       const chapters: string[] = [];
-      const chapterWordCount = Math.floor(request.wordCount / outline.chapters.length);
+      const chapterWordCount = 3000; // Fixed word count per chapter
 
       for (let i = 0; i < outline.chapters.length; i++) {
         const chapterOutline = outline.chapters[i];
@@ -172,7 +172,7 @@ export class NovelGenerationService extends EventEmitter {
           characterDescriptions: outline.characters.map(c => `${c.name}: ${c.description}`).join('\n'),
           wordCount: chapterWordCount,
           genre: request.genre,
-          subgenre: request.subgenre
+          subgenre: request.theme || 'general'
         });
 
         // Save the chapter
@@ -217,7 +217,7 @@ export class NovelGenerationService extends EventEmitter {
         outline.characters,
         outline.themes,
         request.genre,
-        request.subgenre
+        request.theme || 'general'
       );
 
       // Final updates

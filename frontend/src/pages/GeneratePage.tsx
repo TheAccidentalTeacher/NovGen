@@ -50,8 +50,8 @@ const GeneratePage: React.FC = () => {
 
   // Debug logging
   useEffect(() => {
-    console.log('GeneratePage mounted');
-    console.log('API Base URL:', import.meta.env.VITE_API_URL || 'http://localhost:5000');
+    console.log('GeneratePage component mounted');
+    console.log('API Base URL:', import.meta.env.VITE_API_URL || 'http://localhost:3001');
   }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -112,7 +112,7 @@ const GeneratePage: React.FC = () => {
     setProgress({ stage: 'Starting', progress: 0, message: 'Initializing novel generation...' });
 
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
       const endpoint = `${apiUrl}/api/novels/generate`;
       
       console.log('Making API request to:', endpoint);

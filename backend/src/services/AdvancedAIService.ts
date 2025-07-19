@@ -72,15 +72,14 @@ const genreInstructions: Record<string, Record<string, string>> = {
 };
 
 export interface NovelGenerationRequest {
-  genre: string;
-  subgenre: string;
   title: string;
-  summary: string;
-  wordCount: number;
-  characterDescriptions?: string;
-  plotOutline?: string;
-  tone?: string;
-  style?: string;
+  genre: string;
+  theme: string;
+  tone: string;
+  setting: string;
+  characterCount: number;
+  chapterCount: number;
+  description: string;
 }
 
 export interface ChapterGenerationRequest {
@@ -134,21 +133,26 @@ export class AdvancedAIService {
   }
 
   /**
-   * Generate a complete novel outline based on genre, subgenre, and basic parameters
+   * Generate a complete novel outline based on genre and parameters
    */
   async generateNovelOutline(request: NovelGenerationRequest): Promise<NovelOutline> {
-    const genreInstruction = this.getGenreInstruction(request.genre, request.subgenre);
+    // Map theme to subgenre for genre instructions
+    const subgenre = request.theme || 'general';
+    const genreInstruction = this.getGenreInstruction(request.genre, subgenre);
+    
+    // Calculate word count from chapter count (assume ~3000 words per chapter)
+    const wordCount = request.chapterCount * 3000;
     
     const prompt = `
-Create a detailed novel outline for a ${request.subgenre} ${request.genre} novel.
+Create a detailed novel outline for a ${request.theme || 'general'} ${request.genre} novel.
 
 Title: ${request.title}
-Summary: ${request.summary}
-Target Word Count: ${request.wordCount}
-${request.characterDescriptions ? `Character Ideas: ${request.characterDescriptions}` : ''}
-${request.plotOutline ? `Plot Ideas: ${request.plotOutline}` : ''}
-${request.tone ? `Tone: ${request.tone}` : ''}
-${request.style ? `Style: ${request.style}` : ''}
+Description: ${request.description}
+Target Word Count: ${wordCount}
+Characters: ${request.characterCount} main characters
+Chapters: ${request.chapterCount}
+Setting: ${request.setting}
+Tone: ${request.tone}
 
 Genre Guidelines:
 ${genreInstruction}
@@ -179,7 +183,7 @@ For each character provide:
 - Resolution
 
 5. CHAPTER BREAKDOWN
-Create ${Math.ceil(request.wordCount / 3000)} chapters (approximately 3000 words each):
+Create ${request.chapterCount} chapters (approximately 3000 words each):
 For each chapter provide:
 - Chapter number and title
 - 2-3 sentence summary
@@ -187,7 +191,7 @@ For each chapter provide:
 - Character development moments
 - Estimated word count
 
-The outline should be compelling, well-structured, and true to the ${request.subgenre} ${request.genre} genre conventions.
+The outline should be compelling, well-structured, and true to the ${request.theme || 'general'} ${request.genre} genre conventions.
 
 Format your response as a valid JSON object with the following structure:
 {
@@ -518,20 +522,20 @@ The blurb should be professionally written and market-ready.`;
       errors.push('Title must be at least 3 characters long');
     }
     
-    if (!request.summary || request.summary.trim().length < 50) {
-      errors.push('Summary must be at least 50 characters long');
+    if (!request.description || request.description.trim().length < 20) {
+      errors.push('Description must be at least 20 characters long');
     }
     
     if (!request.genre || !genreInstructions[request.genre.toUpperCase()]) {
       errors.push('Valid genre is required');
     }
     
-    if (request.genre && !genreInstructions[request.genre.toUpperCase()]?.[request.subgenre.toUpperCase()]) {
-      errors.push('Valid subgenre is required for the selected genre');
+    if (request.characterCount < 1 || request.characterCount > 10) {
+      errors.push('Character count must be between 1 and 10');
     }
     
-    if (!request.wordCount || request.wordCount < 10000 || request.wordCount > 200000) {
-      errors.push('Word count must be between 10,000 and 200,000 words');
+    if (request.chapterCount < 3 || request.chapterCount > 50) {
+      errors.push('Chapter count must be between 3 and 50');
     }
     
     return {
