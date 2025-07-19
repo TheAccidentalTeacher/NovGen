@@ -94,7 +94,7 @@ export default function Home() {
     if (!project) return;
 
     setProgress({ isGenerating: true, stage: 'outline', currentChapter: 0, totalChapters: 0, message: 'Starting outline generation...' });
-    setDebugLogs(prev => [...prev, '🔄 Starting outline generation job...']);
+    setDebugLogs(prev => [...prev, '🔄 Starting outline generation...']);
 
     try {
       const response = await fetch(`/api/project/${project._id}/outline`, {
@@ -102,66 +102,20 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to start outline generation');
+        throw new Error('Failed to generate outline');
       }
 
-      const { jobId, message } = await response.json();
-      setDebugLogs(prev => [...prev, `✅ ${message} (Job ID: ${jobId})`]);
+      const { outline, message } = await response.json();
+      setDebugLogs(prev => [...prev, `✅ ${message}`]);
       
-      // Start polling for job status
-      pollJobStatus(jobId);
+      // Set the generated outline directly
+      setOutline(outline);
+      setProgress({ isGenerating: false, stage: null, currentChapter: 0, totalChapters: 0, message: '' });
 
     } catch (error) {
       setDebugLogs(prev => [...prev, `❌ Error generating outline: ${error}`]);
       setProgress({ isGenerating: false, stage: null, currentChapter: 0, totalChapters: 0, message: '' });
     }
-  };
-
-  // Poll job status until completion
-  const pollJobStatus = async (jobId: string) => {
-    const pollInterval = setInterval(async () => {
-      try {
-        const response = await fetch(`/api/jobs?jobId=${jobId}`);
-        
-        if (!response.ok) {
-          throw new Error('Failed to get job status');
-        }
-
-        const job = await response.json();
-        
-        setProgress(prev => ({ 
-          ...prev, 
-          message: `Processing... ${job.progress}%`
-        }));
-
-        if (job.status === 'completed') {
-          clearInterval(pollInterval);
-          
-          if (job.result?.outline) {
-            setOutline(job.result.outline);
-            setDebugLogs(prev => [...prev, '✅ Outline generated successfully']);
-          }
-          
-          setProgress({ isGenerating: false, stage: null, currentChapter: 0, totalChapters: 0, message: '' });
-        } else if (job.status === 'failed') {
-          clearInterval(pollInterval);
-          setDebugLogs(prev => [...prev, `❌ Outline generation failed: ${job.error || 'Unknown error'}`]);
-          setProgress({ isGenerating: false, stage: null, currentChapter: 0, totalChapters: 0, message: '' });
-        }
-        
-        setDebugLogs(prev => [...prev, `📊 Job Status: ${job.status} (${job.progress}%)`]);
-
-      } catch (error) {
-        setDebugLogs(prev => [...prev, `❌ Error checking job status: ${error}`]);
-      }
-    }, 3000); // Poll every 3 seconds
-
-    // Safety timeout - stop polling after 5 minutes
-    setTimeout(() => {
-      clearInterval(pollInterval);
-      setProgress({ isGenerating: false, stage: null, currentChapter: 0, totalChapters: 0, message: '' });
-      setDebugLogs(prev => [...prev, '⏰ Job polling timeout - please check manually']);
-    }, 300000);
   };
 
   const draftChapters = async () => {
