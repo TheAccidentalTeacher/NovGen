@@ -276,6 +276,36 @@ export default function Home() {
     }
   }, [project]);
 
+  const resetStuckGeneration = async () => {
+    if (!project) return;
+
+    try {
+      setDebugLogs(prev => [...prev, '🔄 Resetting stuck generation...']);
+      
+      const response = await fetch(`/api/project/${project._id}/outline`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setDebugLogs(prev => [...prev, `✅ ${data.message}`]);
+        
+        // Clear local state
+        setOutline([]);
+        setPartialOutline([]);
+        setGenerationProgress(null);
+        setProgress({ isGenerating: false, stage: null, currentChapter: 0, totalChapters: 0, message: '' });
+        
+        // Refresh project status
+        await checkProjectStatus();
+      } else {
+        setDebugLogs(prev => [...prev, `❌ Failed to reset: ${response.status}`]);
+      }
+    } catch (error) {
+      setDebugLogs(prev => [...prev, `❌ Error resetting generation: ${error}`]);
+    }
+  };
+
   // Auto-check project status every 30 seconds when project exists but no outline
   useEffect(() => {
     if (project && outline.length === 0 && !progress.isGenerating) {
@@ -488,10 +518,20 @@ export default function Home() {
           <div className="mt-8 border-t pt-8">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold text-gray-800">Outline Generation</h2>
-              <div className="text-sm">
-                <span className="bg-gray-100 px-3 py-1 rounded-full">
-                  Status: <span className="font-semibold">{project.status}</span>
-                </span>
+              <div className="flex items-center gap-3">
+                {project.status === 'drafting' && (
+                  <button
+                    onClick={resetStuckGeneration}
+                    className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700 transition-colors"
+                  >
+                    Reset Generation
+                  </button>
+                )}
+                <div className="text-sm">
+                  <span className="bg-gray-100 px-3 py-1 rounded-full">
+                    Status: <span className="font-semibold">{project.status}</span>
+                  </span>
+                </div>
               </div>
             </div>
             

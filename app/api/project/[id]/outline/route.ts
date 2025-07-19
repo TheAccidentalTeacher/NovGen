@@ -3,88 +3,6 @@ import { getProjectsCollection } from '@/lib/database';
 import { createOpenAIService } from '@/lib/openai-service';
 import { createProjectLogger } from '@/lib/logger';
 
-// Background outline generation for large novels
-async function generateOutlineInBackground(projectId: string, project: { premise: string; genre: string; subgenre: string; numberOfChapters: number }, logger: ReturnType<typeof createProjectLogger>) {
-  try {
-    const openaiService = createOpenAIService(logger);
-    
-    // Progress callback to save partial results
-    const progressCallback = async (progress: number, message: string, partialOutline?: string[]) => {
-      logger.info('Progress update', { progress, message, chapterCount: partialOutline?.length });
-      
-      // Update project with progress info and partial outline
-      const collection = await getProjectsCollection();
-      const updateData: Record<string, unknown> = {
-        generationProgress: {
-          progress,
-          message,
-          updatedAt: new Date()
-        },
-        updatedAt: new Date()
-      };
-      
-      // If we have partial outline, save it
-      if (partialOutline && partialOutline.length > 0) {
-        updateData.partialOutline = partialOutline;
-      }
-      
-      await collection.updateOne(
-        { _id: projectId },
-        { $set: updateData }
-      );
-    };
-    
-    const outline = await openaiService.generateOutline(
-      project.premise,
-      project.genre,
-      project.subgenre,
-      project.numberOfChapters,
-      progressCallback
-    );
-
-    // Update project with generated outline
-    const collection = await getProjectsCollection();
-    await collection.updateOne(
-      { _id: projectId },
-      { 
-        $set: { 
-          outline,
-          status: 'outline',
-          updatedAt: new Date()
-        },
-        $unset: {
-          generationProgress: "",
-          partialOutline: ""
-        }
-      }
-    );
-
-    logger.info('Background outline generation completed', { 
-      projectId,
-      chapterCount: outline.length
-    });
-
-  } catch (error) {
-    logger.error('Background outline generation failed', error as Error);
-    
-    // Reset status on failure
-    const collection = await getProjectsCollection();
-    await collection.updateOne(
-      { _id: projectId },
-      { 
-        $set: { 
-          status: 'setup',
-          updatedAt: new Date()
-        },
-        $unset: {
-          generationProgress: "",
-          partialOutline: ""
-        }
-      }
-    );
-  }
-}
-
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -113,27 +31,110 @@ export async function POST(
       );
     }
 
-    // For large novels (25+ chapters), use background processing to avoid timeouts
+    // For large novels (25+ chapters), we need to process in chunks but still synchronously
     if (project.numberOfChapters >= 25) {
-      // Update status to show we're processing (use 'drafting' as intermediate status)
+      // Update status to show we're processing
       await collection.updateOne(
         { _id: id },
         { 
           $set: { 
             status: 'drafting',
+            generationProgress: {
+              progress: 10,
+              message: `Starting generation of ${project.numberOfChapters} chapters...`,
+              updatedAt: new Date()
+            },
             updatedAt: new Date()
           }
         }
       );
 
-      // Start background outline generation (fire and forget)
-      generateOutlineInBackground(id, project, logger);
+      // Process synchronously with progress updates
+      const openaiService = createOpenAIService(logger);
+      
+      const progressCallback = async (progress: number, message: string, partialOutline?: string[]) => {
+        logger.info('Progress update', { progress, message, chapterCount: partialOutline?.length });
+        
+        // Update project with progress info and partial outline
+        const updateData: Record<string, unknown> = {
+          generationProgress: {
+            progress,
+            message,
+            updatedAt: new Date()
+          },
+          updatedAt: new Date()
+        };
+        
+        // If we have partial outline, save it
+        if (partialOutline && partialOutline.length > 0) {
+          updateData.partialOutline = partialOutline;
+        }
+        
+        await collection.updateOne(
+          { _id: id },
+          { $set: updateData }
+        );
+      };
 
-      return NextResponse.json({
-        message: 'Large outline generation started in background',
-        status: 'drafting',
-        note: 'Refresh page in 60-90 seconds to see results'
-      });
+      try {
+        const outline = await openaiService.generateOutline(
+          project.premise,
+          project.genre,
+          project.subgenre,
+          project.numberOfChapters,
+          progressCallback
+        );
+
+        // Update project with completed outline
+        await collection.updateOne(
+          { _id: id },
+          { 
+            $set: { 
+              outline,
+              status: 'outline',
+              updatedAt: new Date()
+            },
+            $unset: {
+              generationProgress: "",
+              partialOutline: ""
+            }
+          }
+        );
+
+        logger.info('Large outline generation completed', { 
+          projectId: id,
+          chapterCount: outline.length
+        });
+
+        return NextResponse.json({
+          message: `Generated ${outline.length} chapter outline`,
+          outline,
+          status: 'outline'
+        });
+
+      } catch (error) {
+        logger.error('Outline generation failed', error as Error);
+        
+        // Reset status on failure
+        await collection.updateOne(
+          { _id: id },
+          { 
+            $set: { 
+              status: 'setup',
+              updatedAt: new Date()
+            },
+            $unset: {
+              generationProgress: "",
+              partialOutline: ""
+            }
+          }
+        );
+        
+        return NextResponse.json(
+          { error: 'Failed to generate outline. Please try again.' },
+          { status: 500 }
+        );
+      }
     }
 
     // For smaller novels, generate directly
@@ -230,6 +231,47 @@ export async function GET(
     logger.error('Failed to get project outline', error as Error);
     return NextResponse.json(
       { error: 'Failed to get outline' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  const { id } = await context.params;
+  const logger = createProjectLogger(id);
+  
+  try {
+    logger.info('Resetting stuck outline generation', { projectId: id });
+
+    // Reset project status and clear progress
+    const collection = await getProjectsCollection();
+    await collection.updateOne(
+      { _id: id },
+      { 
+        $set: { 
+          status: 'setup',
+          updatedAt: new Date()
+        },
+        $unset: {
+          generationProgress: "",
+          partialOutline: "",
+          outline: ""
+        }
+      }
+    );
+
+    return NextResponse.json({
+      message: 'Project reset successfully. You can now generate a new outline.',
+      status: 'setup'
+    });
+
+  } catch (error) {
+    logger.error('Failed to reset project', error as Error);
+    return NextResponse.json(
+      { error: 'Failed to reset project' },
       { status: 500 }
     );
   }
