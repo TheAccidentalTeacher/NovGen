@@ -32,12 +32,8 @@ RUN cd backend && npm install --omit=dev
 # Copy built application
 COPY --from=builder /app/backend/dist ./backend/dist
 
-# Expose port
-EXPOSE 3001
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3001/health || exit 1
+# Expose port (Railway will assign the PORT environment variable)
+EXPOSE $PORT
 
 # Start the application
 CMD ["node", "backend/dist/server.js"]
