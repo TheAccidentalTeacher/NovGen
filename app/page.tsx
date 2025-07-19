@@ -43,6 +43,50 @@ export default function Home() {
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showLogs, setShowLogs] = useState(false);
 
+  // Load existing project from localStorage on page load
+  useEffect(() => {
+    const loadSavedProject = async () => {
+      const savedProjectId = localStorage.getItem('currentProjectId');
+      if (savedProjectId) {
+        try {
+          setDebugLogs(prev => [...prev, `🔄 Loading saved project: ${savedProjectId}`]);
+          
+          const response = await fetch(`/api/project/${savedProjectId}`);
+          if (response.ok) {
+            const savedProject = await response.json();
+            setProject(savedProject);
+            
+            // Restore outline if it exists
+            if (savedProject.outline && savedProject.outline.length > 0) {
+              setOutline(savedProject.outline);
+            }
+            
+            // Update form data to match saved project
+            setFormData({
+              genre: savedProject.genre,
+              subgenre: savedProject.subgenre,
+              totalWordCount: savedProject.totalWordCount,
+              numberOfChapters: savedProject.numberOfChapters,
+              chapterLength: savedProject.chapterLength,
+              premise: savedProject.premise
+            });
+            
+            setDebugLogs(prev => [...prev, `✅ Restored project: ${savedProject.genre}/${savedProject.subgenre} - ${savedProject.numberOfChapters} chapters`]);
+          } else {
+            // Project not found, clear localStorage
+            localStorage.removeItem('currentProjectId');
+            setDebugLogs(prev => [...prev, `⚠️ Saved project not found, starting fresh`]);
+          }
+        } catch (error) {
+          localStorage.removeItem('currentProjectId');
+          setDebugLogs(prev => [...prev, `❌ Error loading saved project: ${error}`]);
+        }
+      }
+    };
+    
+    loadSavedProject();
+  }, []);
+
   // Auto-calculate chapter length based on total word count and number of chapters
   useEffect(() => {
     if (formData.numberOfChapters > 0) {
@@ -82,6 +126,9 @@ export default function Home() {
 
       const savedProject = await response.json();
       setProject(savedProject);
+      
+      // Save project ID to localStorage for persistence across refreshes
+      localStorage.setItem('currentProjectId', savedProject._id);
       
       // Add to debug logs
       setDebugLogs(prev => [...prev, `✅ Premise saved successfully - Project ID: ${savedProject._id}`]);
@@ -190,6 +237,28 @@ export default function Home() {
       setDebugLogs(prev => [...prev, `❌ Error starting chapter generation: ${error}`]);
       setProgress({ isGenerating: false, stage: null, currentChapter: 0, totalChapters: 0, message: '' });
     }
+  };
+
+  const clearProject = () => {
+    // Clear all state
+    setProject(null);
+    setOutline([]);
+    setProgress({ isGenerating: false, stage: null, currentChapter: 0, totalChapters: 0, message: '' });
+    
+    // Clear localStorage
+    localStorage.removeItem('currentProjectId');
+    
+    // Reset form to defaults
+    setFormData({
+      genre: 'Christian',
+      subgenre: '',
+      totalWordCount: 50000,
+      numberOfChapters: 20,
+      chapterLength: 1600,
+      premise: ''
+    });
+    
+    setDebugLogs(prev => [...prev, '🔄 Project cleared - starting fresh']);
   };
 
   const exportNovel = async () => {
@@ -345,6 +414,21 @@ export default function Home() {
               >
                 Save Premise
               </button>
+            </div>
+          )}
+
+          {/* Clear Project Button */}
+          {project && (
+            <div className="text-center">
+              <button
+                onClick={clearProject}
+                className="px-6 py-2 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-colors"
+              >
+                Start New Project
+              </button>
+              <p className="text-sm text-gray-500 mt-2">
+                Current Project: {project.genre}/{project.subgenre} - {project.numberOfChapters} chapters
+              </p>
             </div>
           )}
         </div>
