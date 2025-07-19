@@ -8,11 +8,38 @@ async function generateOutlineInBackground(projectId: string, project: { premise
   try {
     const openaiService = createOpenAIService(logger);
     
+    // Progress callback to save partial results
+    const progressCallback = async (progress: number, message: string, partialOutline?: string[]) => {
+      logger.info('Progress update', { progress, message, chapterCount: partialOutline?.length });
+      
+      // Update project with progress info and partial outline
+      const collection = await getProjectsCollection();
+      const updateData: Record<string, unknown> = {
+        generationProgress: {
+          progress,
+          message,
+          updatedAt: new Date()
+        },
+        updatedAt: new Date()
+      };
+      
+      // If we have partial outline, save it
+      if (partialOutline && partialOutline.length > 0) {
+        updateData.partialOutline = partialOutline;
+      }
+      
+      await collection.updateOne(
+        { _id: projectId },
+        { $set: updateData }
+      );
+    };
+    
     const outline = await openaiService.generateOutline(
       project.premise,
       project.genre,
       project.subgenre,
-      project.numberOfChapters
+      project.numberOfChapters,
+      progressCallback
     );
 
     // Update project with generated outline
@@ -24,6 +51,10 @@ async function generateOutlineInBackground(projectId: string, project: { premise
           outline,
           status: 'outline',
           updatedAt: new Date()
+        },
+        $unset: {
+          generationProgress: "",
+          partialOutline: ""
         }
       }
     );
@@ -44,6 +75,10 @@ async function generateOutlineInBackground(projectId: string, project: { premise
         $set: { 
           status: 'setup',
           updatedAt: new Date()
+        },
+        $unset: {
+          generationProgress: "",
+          partialOutline: ""
         }
       }
     );

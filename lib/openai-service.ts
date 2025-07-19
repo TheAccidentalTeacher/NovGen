@@ -125,7 +125,7 @@ export class OpenAIService {
     genre: string,
     subgenre: string,
     numberOfChapters: number,
-    progressCallback?: (progress: number, message: string) => Promise<void>
+    progressCallback?: (progress: number, message: string, partialOutline?: string[]) => Promise<void>
   ): Promise<string[]> {
     const chunkSize = 12; // Generate 12 chapters at a time for good balance
     const chunks = Math.ceil(numberOfChapters / chunkSize);
@@ -156,6 +156,16 @@ export class OpenAIService {
 
       allOutlines = allOutlines.concat(chunkOutline);
       
+      // Provide incremental update with partial results
+      if (progressCallback) {
+        const progressPercent = 20 + ((chunkIndex + 1) / chunks) * 70;
+        await progressCallback(
+          progressPercent, 
+          `Completed chapters ${startChapter}-${Math.min(endChapter, numberOfChapters)} (${allOutlines.length}/${numberOfChapters})`,
+          [...allOutlines] // Send copy of current progress
+        );
+      }
+      
       this.logger.info(`Completed chunk ${chunkIndex + 1}/${chunks}`, {
         chaptersGenerated: allOutlines.length,
         targetChapters: numberOfChapters
@@ -163,7 +173,7 @@ export class OpenAIService {
     }
 
     if (progressCallback) {
-      await progressCallback(95, 'Finalizing complete outline...');
+      await progressCallback(95, 'Finalizing complete outline...', allOutlines);
     }
 
     this.logger.info('Chunked outline generation completed', { 

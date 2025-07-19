@@ -33,6 +33,8 @@ export default function Home() {
 
   const [project, setProject] = useState<NovelProject | null>(null);
   const [outline, setOutline] = useState<string[]>([]);
+  const [partialOutline, setPartialOutline] = useState<string[]>([]);
+  const [generationProgress, setGenerationProgress] = useState<{progress: number, message: string} | null>(null);
   const [progress, setProgress] = useState<ProgressState>({
     isGenerating: false,
     stage: null,
@@ -253,7 +255,16 @@ export default function Home() {
         // Update outline if it exists
         if (updatedProject.outline && updatedProject.outline.length > 0) {
           setOutline(updatedProject.outline);
+          setPartialOutline([]);
+          setGenerationProgress(null);
           setDebugLogs(prev => [...prev, `✅ Found ${updatedProject.outline.length} chapter outlines!`]);
+        } else if (updatedProject.partialOutline && updatedProject.partialOutline.length > 0) {
+          setPartialOutline(updatedProject.partialOutline);
+          setGenerationProgress(updatedProject.generationProgress || null);
+          setDebugLogs(prev => [...prev, `🔄 Partial outline: ${updatedProject.partialOutline.length} chapters completed`]);
+        } else if (updatedProject.generationProgress) {
+          setGenerationProgress(updatedProject.generationProgress);
+          setDebugLogs(prev => [...prev, `ℹ️ ${updatedProject.generationProgress.message}`]);
         } else {
           setDebugLogs(prev => [...prev, `ℹ️ Status: ${updatedProject.status} - No outline yet`]);
         }
@@ -274,7 +285,7 @@ export default function Home() {
 
       return () => clearInterval(interval);
     }
-  }, [project, outline.length, progress.isGenerating]);
+  }, [project, outline.length, progress.isGenerating, checkProjectStatus]);
 
   const clearProject = () => {
     // Clear all state
@@ -330,8 +341,10 @@ export default function Home() {
   };
 
   return (
-    <main className="container mx-auto px-4 py-8 max-w-4xl">
-      <div className="bg-white rounded-lg shadow-lg p-8">
+    <main className="container mx-auto px-4 py-8 max-w-7xl">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Left Column - Main Interface */}
+        <div className="bg-white rounded-lg shadow-lg p-8">
         <h1 className="text-3xl font-bold text-center mb-8 text-gray-800">
           Novel Generator
         </h1>
@@ -607,6 +620,109 @@ export default function Home() {
               )}
             </div>
           )}
+        </div>
+        </div>
+
+        {/* Right Column - Progressive Outline Display */}
+        <div className="space-y-6">
+          <div className="bg-white rounded-lg shadow-lg p-6 sticky top-4">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Chapter Outline</h2>
+            
+            {/* No outline state */}
+            {outline.length === 0 && partialOutline.length === 0 && !progress.isGenerating && !generationProgress && (
+              <div className="text-center py-12">
+                <div className="text-gray-400 mb-4">
+                  <svg className="mx-auto h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <p className="text-gray-500 text-lg">Generate an outline to see chapters appear here</p>
+                <p className="text-gray-400 text-sm mt-2">Chapters will appear progressively as they're generated</p>
+              </div>
+            )}
+
+            {/* Partial outline display (during generation) */}
+            {partialOutline.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-4 p-3 bg-green-50 rounded-lg">
+                  <h3 className="text-lg font-medium text-gray-900">Generation in Progress</h3>
+                  <div className="flex items-center space-x-2">
+                    <div className="animate-pulse w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span className="text-sm text-green-700 font-medium">{partialOutline.length} of {project?.numberOfChapters || 0}</span>
+                  </div>
+                </div>
+                
+                <div className="max-h-96 overflow-y-auto space-y-3">
+                  {partialOutline.map((chapter, index) => (
+                    <div key={index} className="border-l-4 border-green-500 pl-4 py-3 bg-green-50 rounded-r-md">
+                      <div className="flex items-center justify-between mb-1">
+                        <h4 className="font-medium text-gray-900">Chapter {index + 1}</h4>
+                        <span className="text-xs text-green-600 font-medium">✓ Complete</span>
+                      </div>
+                      <p className="text-sm text-gray-600 leading-relaxed">{chapter}</p>
+                    </div>
+                  ))}
+                  
+                  {/* Show remaining chapters as placeholders */}
+                  {project && Array.from({ length: project.numberOfChapters - partialOutline.length }, (_, index) => (
+                    <div key={index + partialOutline.length} className="border-l-4 border-gray-300 pl-4 py-3 bg-gray-50 rounded-r-md opacity-60">
+                      <div className="flex items-center justify-between mb-1">
+                        <h4 className="font-medium text-gray-400">Chapter {partialOutline.length + index + 1}</h4>
+                        <span className="text-xs text-gray-400">Pending...</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <div className="animate-pulse w-2 h-2 bg-gray-400 rounded-full"></div>
+                        <p className="text-sm text-gray-400">Generating...</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Complete outline display */}
+            {outline.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-4 p-3 bg-blue-50 rounded-lg">
+                  <h3 className="text-lg font-medium text-gray-900">Complete Outline</h3>
+                  <span className="text-sm text-blue-700 font-medium">✅ {outline.length} chapters</span>
+                </div>
+                
+                <div className="max-h-96 overflow-y-auto space-y-3">
+                  {outline.map((chapter, index) => (
+                    <div key={index} className="border-l-4 border-blue-500 pl-4 py-3 bg-blue-50 rounded-r-md">
+                      <div className="flex items-center justify-between mb-1">
+                        <h4 className="font-medium text-gray-900">Chapter {index + 1}</h4>
+                        <span className="text-xs text-blue-600 font-medium">✓ Ready</span>
+                      </div>
+                      <p className="text-sm text-gray-600 leading-relaxed">{chapter}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Generation status indicator */}
+            {(progress.isGenerating || generationProgress) && outline.length === 0 && partialOutline.length === 0 && (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                <p className="text-gray-600">
+                  {generationProgress?.message || progress.message || 'Starting generation...'}
+                </p>
+                {generationProgress && (
+                  <div className="mt-4">
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${generationProgress.progress}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">{generationProgress.progress}% complete</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </main>
