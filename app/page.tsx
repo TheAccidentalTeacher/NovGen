@@ -105,12 +105,21 @@ export default function Home() {
         throw new Error('Failed to generate outline');
       }
 
-      const { outline, message } = await response.json();
-      setDebugLogs(prev => [...prev, `✅ ${message}`]);
+      const data = await response.json();
+      setDebugLogs(prev => [...prev, `✅ ${data.message}`]);
       
-      // Set the generated outline directly
-      setOutline(outline);
-      setProgress({ isGenerating: false, stage: null, currentChapter: 0, totalChapters: 0, message: '' });
+      // Handle different response types
+      if (data.outline) {
+        // Small novel - outline generated immediately
+        setOutline(data.outline);
+        setProgress({ isGenerating: false, stage: null, currentChapter: 0, totalChapters: 0, message: '' });
+      } else {
+        // Large novel - background processing
+        setProgress({ isGenerating: false, stage: null, currentChapter: 0, totalChapters: 0, message: data.note || 'Check back in 60-90 seconds' });
+        if (data.note) {
+          setDebugLogs(prev => [...prev, `ℹ️ ${data.note}`]);
+        }
+      }
 
     } catch (error) {
       setDebugLogs(prev => [...prev, `❌ Error generating outline: ${error}`]);
