@@ -95,24 +95,18 @@ export class OpenAIService {
     }
   }
 
-  // Generate novel outline (with chunking for large novels and progress feedback)
+  // Generate novel outline (simplified for reliability)
   async generateOutline(
     premise: string, 
     genre: string, 
     subgenre: string, 
-    numberOfChapters: number,
-    progressCallback?: (progress: number, message: string) => Promise<void>
+    numberOfChapters: number
   ): Promise<string[]> {
     try {
       this.logger.info('Starting outline generation', { genre, subgenre, numberOfChapters });
       
-      // For large novels (25+ chapters), use chunked generation for better progress feedback
-      if (numberOfChapters >= 25) {
-        return this.generateChunkedOutline(premise, genre, subgenre, numberOfChapters, progressCallback);
-      }
-      
-      // For smaller novels, generate in one go
-      return this.generateSingleOutline(premise, genre, subgenre, numberOfChapters, progressCallback);
+      // Generate in single call - Vercel Pro handles 5-minute timeouts
+      return this.generateSingleOutline(premise, genre, subgenre, numberOfChapters);
     } catch (error) {
       this.logger.error('Outline generation failed', error as Error);
       throw error;
@@ -242,29 +236,36 @@ Focus on creating compelling character arcs that show clear progression and grow
     // Parse JSON response
     let outline: string[];
     try {
-      outline = JSON.parse(content);
+      // Clean the content to remove markdown code blocks if present
+      let cleanContent = content.trim();
+      if (cleanContent.startsWith('```json')) {
+        cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      } else if (cleanContent.startsWith('```')) {
+        cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      }
+      
+      outline = JSON.parse(cleanContent);
       if (!Array.isArray(outline) || outline.length !== chunkChapters) {
         throw new Error(`Expected array of ${chunkChapters} summaries, got ${outline?.length || 'invalid'}`);
       }
     } catch (parseError) {
-      this.logger.error('Failed to parse outline JSON', parseError as Error, { rawContent: content });
+      this.logger.error('Failed to parse outline JSON', parseError as Error, { 
+        rawContent: content.substring(0, 500) + '...',
+        cleanedContent: content.trim().startsWith('```') ? 'Found markdown blocks' : 'No markdown blocks'
+      });
       throw new Error('Invalid outline format received from AI');
     }
 
     return outline;
   }
 
-  // Generate complete outline in single call (for smaller novels)
+  // Generate complete outline in single call (simplified and reliable)
   private async generateSingleOutline(
     premise: string,
     genre: string,
     subgenre: string,
-    numberOfChapters: number,
-    progressCallback?: (progress: number, message: string) => Promise<void>
+    numberOfChapters: number
   ): Promise<string[]> {
-    if (progressCallback) {
-      await progressCallback(20, `Generating complete ${numberOfChapters}-chapter outline...`);
-    }
 
     // Use cost-effective model for outline generation - GPT-4o-mini is excellent for structured tasks
     const systemPrompt = `You are a professional novel outline generator. Create exactly ${numberOfChapters} detailed chapter summaries for a ${genre}/${subgenre} novel.
@@ -308,10 +309,6 @@ Focus on creating compelling character arcs that show clear progression and grow
     const content = response.choices[0]?.message?.content;
     if (!content) {
       throw new Error('No outline content received from OpenAI');
-    }
-
-    if (progressCallback) {
-      await progressCallback(80, 'Processing outline response...');
     }
 
     // Parse JSON response

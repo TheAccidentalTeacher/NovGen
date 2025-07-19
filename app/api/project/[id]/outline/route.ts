@@ -31,121 +31,18 @@ export async function POST(
       );
     }
 
-    // For large novels (25+ chapters), we need to process in chunks but still synchronously
-    if (project.numberOfChapters >= 25) {
-      // Update status to show we're processing
-      await collection.updateOne(
-        { _id: id },
-        { 
-          $set: { 
-            status: 'drafting',
-            generationProgress: {
-              progress: 10,
-              message: `Starting generation of ${project.numberOfChapters} chapters...`,
-              updatedAt: new Date()
-            },
-            updatedAt: new Date()
-          }
-        }
-      );
-
-      // Process synchronously with progress updates
-      const openaiService = createOpenAIService(logger);
-      
-      const progressCallback = async (progress: number, message: string, partialOutline?: string[]) => {
-        logger.info('Progress update', { progress, message, chapterCount: partialOutline?.length });
-        
-        // Update project with progress info and partial outline
-        const updateData: Record<string, unknown> = {
-          generationProgress: {
-            progress,
-            message,
-            updatedAt: new Date()
-          },
+    // Update status to show we're processing
+    await collection.updateOne(
+      { _id: id },
+      { 
+        $set: { 
+          status: 'drafting',
           updatedAt: new Date()
-        };
-        
-        // If we have partial outline, save it
-        if (partialOutline && partialOutline.length > 0) {
-          updateData.partialOutline = partialOutline;
         }
-        
-        await collection.updateOne(
-          { _id: id },
-          { $set: updateData }
-        );
-      };
-
-      try {
-        // Set a timeout for the entire operation (4.5 minutes)
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('Generation timeout after 4.5 minutes')), 270000);
-        });
-
-        const generationPromise = openaiService.generateOutline(
-          project.premise,
-          project.genre,
-          project.subgenre,
-          project.numberOfChapters,
-          progressCallback
-        );
-
-        // Race between generation and timeout
-        const outline = await Promise.race([generationPromise, timeoutPromise]);
-
-        // Update project with completed outline
-        await collection.updateOne(
-          { _id: id },
-          { 
-            $set: { 
-              outline,
-              status: 'outline',
-              updatedAt: new Date()
-            },
-            $unset: {
-              generationProgress: "",
-              partialOutline: ""
-            }
-          }
-        );
-
-        logger.info('Large outline generation completed', { 
-          projectId: id,
-          chapterCount: outline.length
-        });
-
-        return NextResponse.json({
-          message: `Generated ${outline.length} chapter outline`,
-          outline,
-          status: 'outline'
-        });
-
-      } catch (error) {
-        logger.error('Outline generation failed', error as Error);
-        
-        // Reset status on failure
-        await collection.updateOne(
-          { _id: id },
-          { 
-            $set: { 
-              status: 'setup',
-              updatedAt: new Date()
-            },
-            $unset: {
-              generationProgress: "",
-              partialOutline: ""
-            }
-          }
-        );
-        
-        return NextResponse.json(
-          { error: 'Failed to generate outline. Please try again.' },
-          { status: 500 }
-        );
       }
-    }
+    );
 
-    // For smaller novels, generate directly
+    // Generate outline in single call (works for all novels with Vercel Pro timeouts)
     const openaiService = createOpenAIService(logger);
     
     logger.info('Starting outline generation with OpenAI', {
