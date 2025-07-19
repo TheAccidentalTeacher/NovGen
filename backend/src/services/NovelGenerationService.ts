@@ -1,5 +1,5 @@
 import { AdvancedAIService, NovelGenerationRequest, ChapterGenerationRequest } from './AdvancedAIService';
-import { Novel, Chapter, GenerationJob, IGenerationJob } from '../models/index.js';
+import { Novel, Chapter, GenerationJob, IGenerationJob } from '../models/index';
 import { EventEmitter } from 'events';
 
 export interface GenerationProgress {

@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { NovelGenerationService } from '../services/NovelGenerationService';
-import { Novel, Chapter, GenerationJob, User } from '../models/index.js';
+import { Novel, Chapter, GenerationJob, User } from '../models/index';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 
