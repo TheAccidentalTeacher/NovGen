@@ -14,6 +14,7 @@ export class OpenAIService {
 
     this.openai = new OpenAI({
       apiKey: apiKey,
+      timeout: 25000, // 25 second timeout to stay under Vercel limits
     });
     this.logger = logger;
   }
@@ -100,28 +101,15 @@ export class OpenAIService {
       
       const promptConfig = await this.getActivePromptConfig();
       
-      const systemPrompt = `${promptConfig.basePrompt}
+      const systemPrompt = `You are a professional novel outline generator. Create exactly ${numberOfChapters} chapter summaries for a ${genre}/${subgenre} novel.
 
-You are tasked with creating a detailed chapter-by-chapter outline for a ${numberOfChapters}-chapter novel in the ${genre} / ${subgenre} genre.
+Each summary should be 1-2 sentences, advance the plot, and connect to surrounding chapters.
 
-${promptConfig.vibePrompt}
+Return ONLY a valid JSON array of ${numberOfChapters} strings. Example: ["Chapter 1 summary...", "Chapter 2 summary...", ...]`;
 
-Create exactly ${numberOfChapters} chapter summaries, each 2-3 sentences long. Each summary should:
-- Advance the main plot
-- Include key character development moments
-- Build tension and momentum
-- Connect logically to the previous and next chapters
-- Be specific enough to guide chapter writing but flexible enough to allow creative development
+      const userPrompt = `Create a ${numberOfChapters}-chapter outline for this ${genre}/${subgenre} novel:
 
-Return ONLY a JSON array of ${numberOfChapters} strings, one for each chapter summary. Do not include chapter numbers or titles in the summaries.`;
-
-      const userPrompt = `Genre: ${genre} / ${subgenre}
-Number of Chapters: ${numberOfChapters}
-
-Premise:
-${premise}
-
-Generate the chapter outline now.`;
+${premise}`;
 
       const response = await this.openai.chat.completions.create({
         model: 'gpt-4-turbo-preview',
@@ -130,7 +118,7 @@ Generate the chapter outline now.`;
           { role: 'user', content: userPrompt }
         ],
         temperature: 0.8,
-        max_tokens: 4000,
+        max_tokens: 3000,
       });
 
       const content = response.choices[0]?.message?.content;
