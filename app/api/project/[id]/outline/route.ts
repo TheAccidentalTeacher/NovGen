@@ -77,13 +77,21 @@ export async function POST(
       };
 
       try {
-        const outline = await openaiService.generateOutline(
+        // Set a timeout for the entire operation (4.5 minutes)
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Generation timeout after 4.5 minutes')), 270000);
+        });
+
+        const generationPromise = openaiService.generateOutline(
           project.premise,
           project.genre,
           project.subgenre,
           project.numberOfChapters,
           progressCallback
         );
+
+        // Race between generation and timeout
+        const outline = await Promise.race([generationPromise, timeoutPromise]);
 
         // Update project with completed outline
         await collection.updateOne(

@@ -111,7 +111,16 @@ export default function Home() {
   }, [formData.genre, availableSubgenres, formData.subgenre]);
 
   const handleInputChange = (field: keyof FormData, value: string | number) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    // Handle numeric fields with validation
+    if (field === 'totalWordCount' || field === 'numberOfChapters') {
+      const numValue = typeof value === 'string' ? parseInt(value) : value;
+      // Only update if it's a valid number, otherwise keep current value
+      if (!isNaN(numValue) && numValue > 0) {
+        setFormData(prev => ({ ...prev, [field]: numValue }));
+      }
+    } else {
+      setFormData(prev => ({ ...prev, [field]: value }));
+    }
   };
 
   const savePremise = async () => {
@@ -429,7 +438,7 @@ export default function Home() {
                 max="200000"
                 step="1000"
                 value={formData.totalWordCount}
-                onChange={(e) => handleInputChange('totalWordCount', parseInt(e.target.value))}
+                onChange={(e) => handleInputChange('totalWordCount', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={project !== null}
               />
@@ -445,7 +454,7 @@ export default function Home() {
                 min="1"
                 max="100"
                 value={formData.numberOfChapters}
-                onChange={(e) => handleInputChange('numberOfChapters', parseInt(e.target.value))}
+                onChange={(e) => handleInputChange('numberOfChapters', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={project !== null}
               />

@@ -8,7 +8,7 @@
       "maxDuration": 30
     },
     "app/api/project/[id]/outline/route.ts": {
-      "maxDuration": 30
+      "maxDuration": 300
     }
   }
 }
