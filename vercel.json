@@ -1,0 +1,21 @@
+{
+  "name": "novgen-ai-generator",
+  "framework": "nextjs",
+  "functions": {
+    "app/api/project/[id]/chapters/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/project/[id]/export/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/project/[id]/outline/route.ts": {
+      "maxDuration": 30
+    }
+  },
+  "env": {
+    "OPENAI_API_KEY": "@openai_api_key",
+    "MONGODB_URI": "@mongodb_uri",
+    "DEBUG_LOGS": "true",
+    "NODE_ENV": "production"
+  }
+}
