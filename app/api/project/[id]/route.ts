@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getProjectsCollection } from '@/lib/database';
+import { createProjectLogger } from '@/lib/logger';
 
 export async function GET(
   request: NextRequest,
@@ -20,7 +21,8 @@ export async function GET(
 
     return NextResponse.json(project);
   } catch (error) {
-    console.error('Failed to retrieve project:', error);
+    const logger = createProjectLogger('unknown');
+    logger.error('Failed to retrieve project', error as Error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

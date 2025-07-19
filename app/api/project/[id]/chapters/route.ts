@@ -90,7 +90,16 @@ export async function POST(
     );
 
     // Start background chapter generation
-    generateChaptersInBackground(id, project as ProjectData, logger);
+    const projectData: ProjectData = {
+      _id: project._id as string,
+      premise: project.premise,
+      outline: project.outline,
+      numberOfChapters: project.numberOfChapters,
+      chapterLength: project.chapterLength,
+      genre: project.genre,
+      subgenre: project.subgenre
+    };
+    generateChaptersInBackground(id, projectData, logger);
 
     return NextResponse.json({
       message: 'Chapter generation started',

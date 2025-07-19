@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server';
+import { Logger } from '@/lib/logger';
+
+const logger = new Logger();
 
 export async function GET() {
   try {
@@ -14,23 +17,13 @@ export async function GET() {
 
     const result = await response.json();
 
-    if (result.processed) {
-      // If a job was processed, call the scheduler again after a short delay
-      // to process any remaining jobs
-      setTimeout(async () => {
-        await fetch(`${process.env.VERCEL_URL || 'http://localhost:3000'}/api/scheduler`, {
-          method: 'GET'
-        });
-      }, 1000);
-    }
-
     return NextResponse.json({
       message: 'Scheduler executed',
       result
     });
 
   } catch (error) {
-    console.error('Scheduler error:', error);
+    logger.error('Scheduler execution failed', error as Error);
     return NextResponse.json(
       { error: 'Scheduler failed' },
       { status: 500 }

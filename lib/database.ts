@@ -1,10 +1,29 @@
-import { MongoClient, Db, Collection } from 'mongodb';
+import { MongoClient, Db, Collection, ObjectId } from 'mongodb';
+
+// Global logger for database operations
+class DatabaseLogger {
+  info(message: string, data?: Record<string, unknown>) {
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[Database] ${message}`, data ? JSON.stringify(data) : '');
+    }
+  }
+  
+  error(message: string, error?: Error | unknown) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error(`[Database] ${message}:`, errorMsg);
+    }
+    // In production, we might want to send to external logging service
+  }
+}
+
+const dbLogger = new DatabaseLogger();
 
 let client: MongoClient;
 let db: Db;
 
 export interface NovelProject {
-  _id?: string;
+  _id?: ObjectId | string;
   genre: string;
   subgenre: string;
   totalWordCount: number;
@@ -38,7 +57,7 @@ export interface DebugLog {
 }
 
 export interface AIPromptConfig {
-  _id?: string;
+  _id?: ObjectId | string;
   version: number;
   basePrompt: string;
   vibePrompt: string;
@@ -63,10 +82,10 @@ export async function connectToDatabase(): Promise<Db> {
     await client.connect();
     db = client.db('novgen');
     
-    console.log('✅ Connected to MongoDB');
+    dbLogger.info('Connected to MongoDB');
     return db;
   } catch (error) {
-    console.error('❌ MongoDB connection error:', error);
+    dbLogger.error('MongoDB connection failed', error);
     throw error;
   }
 }

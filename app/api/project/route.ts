@@ -5,13 +5,10 @@ import { v4 as uuidv4 } from 'uuid';
 
 // POST - Create new project
 export async function POST(request: NextRequest) {
-  console.log('🔄 POST /api/project called');
   const logger = createProjectLogger('new-project');
   
   try {
-    console.log('🔄 Checking environment variables...');
     if (!process.env.MONGODB_URI) {
-      console.error('❌ MONGODB_URI not found');
       return NextResponse.json(
         { error: 'Database configuration missing' },
         { status: 500 }
@@ -19,22 +16,16 @@ export async function POST(request: NextRequest) {
     }
     
     if (!process.env.OPENAI_API_KEY) {
-      console.error('❌ OPENAI_API_KEY not found');
       return NextResponse.json(
         { error: 'OpenAI configuration missing' },
         { status: 500 }
       );
     }
     
-    console.log('✅ Environment variables found');
-    
     logger.info('Creating new project');
     
     const body = await request.json();
-    console.log('📋 Request body received:', JSON.stringify(body, null, 2));
-    
     const { genre, subgenre, totalWordCount, numberOfChapters, chapterLength, premise } = body;
-    console.log('📋 Extracted fields:', { genre, subgenre, totalWordCount, numberOfChapters, chapterLength, premiseLength: premise?.length });
 
     // Validation
     if (!genre || !subgenre || !premise.trim()) {
@@ -79,26 +70,19 @@ export async function POST(request: NextRequest) {
     };
 
     // Save to database
-    console.log('💾 Getting projects collection...');
     const collection = await getProjectsCollection();
-    console.log('💾 Collection obtained, inserting project...');
-    
     await collection.insertOne(project);
-    console.log('✅ Project inserted successfully');
 
     logger.info('Project created successfully', { projectId, genre, subgenre, numberOfChapters });
 
     return NextResponse.json(project);
   } catch (error) {
-    console.error('❌ Full error details:', error);
     logger.error('Failed to create project', error as Error);
     
     // Return detailed error for debugging (temporarily)
     return NextResponse.json(
       { 
         error: 'Internal server error',
-        details: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
         timestamp: new Date().toISOString()
       },
       { status: 500 }
@@ -108,6 +92,8 @@ export async function POST(request: NextRequest) {
 
 // GET - Retrieve project
 export async function GET(request: NextRequest) {
+  const logger = createProjectLogger('get-project');
+  
   try {
     const url = new URL(request.url);
     const projectId = url.searchParams.get('id');
@@ -131,7 +117,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(project);
   } catch (error) {
-    console.error('Failed to retrieve project:', error);
+    logger.error('Failed to retrieve project', error as Error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

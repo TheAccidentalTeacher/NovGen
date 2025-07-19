@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { Logger } from './logger';
 import { getPromptConfigCollection, AIPromptConfig } from './database';
+import { ObjectId } from 'mongodb';
 
 export class OpenAIService {
   private openai: OpenAI;
@@ -69,7 +70,7 @@ export class OpenAIService {
 
       // Deactivate current config
       await collection.updateOne(
-        { _id: currentConfig._id },
+        { _id: typeof currentConfig._id === 'string' ? new ObjectId(currentConfig._id) : currentConfig._id },
         { $set: { isActive: false } }
       );
 

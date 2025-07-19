@@ -86,7 +86,6 @@ export default function Home() {
       // Add to debug logs
       setDebugLogs(prev => [...prev, `✅ Premise saved successfully - Project ID: ${savedProject._id}`]);
     } catch (error) {
-      console.error('Error saving premise:', error);
       setDebugLogs(prev => [...prev, `❌ Error saving premise: ${error}`]);
     }
   };
@@ -113,7 +112,6 @@ export default function Home() {
       pollJobStatus(jobId);
 
     } catch (error) {
-      console.error('Error generating outline:', error);
       setDebugLogs(prev => [...prev, `❌ Error generating outline: ${error}`]);
       setProgress({ isGenerating: false, stage: null, currentChapter: 0, totalChapters: 0, message: '' });
     }
@@ -142,9 +140,6 @@ export default function Home() {
           if (job.result?.outline) {
             setOutline(job.result.outline);
             setDebugLogs(prev => [...prev, '✅ Outline generated successfully']);
-            
-            // Trigger background worker to process this job
-            await fetch('/api/background-worker', { method: 'POST' });
           }
           
           setProgress({ isGenerating: false, stage: null, currentChapter: 0, totalChapters: 0, message: '' });
@@ -157,7 +152,6 @@ export default function Home() {
         setDebugLogs(prev => [...prev, `📊 Job Status: ${job.status} (${job.progress}%)`]);
 
       } catch (error) {
-        console.error('Error polling job status:', error);
         setDebugLogs(prev => [...prev, `❌ Error checking job status: ${error}`]);
       }
     }, 3000); // Poll every 3 seconds
@@ -225,12 +219,11 @@ export default function Home() {
             }
           }
         } catch (error) {
-          console.error('Error polling progress:', error);
+          setDebugLogs(prev => [...prev, `❌ Error polling progress: ${error}`]);
         }
       }, 2000); // Poll every 2 seconds
 
     } catch (error) {
-      console.error('Error starting chapter generation:', error);
       setDebugLogs(prev => [...prev, `❌ Error starting chapter generation: ${error}`]);
       setProgress({ isGenerating: false, stage: null, currentChapter: 0, totalChapters: 0, message: '' });
     }
@@ -263,7 +256,6 @@ export default function Home() {
 
       setDebugLogs(prev => [...prev, '✅ Novel exported successfully!']);
     } catch (error) {
-      console.error('Error exporting novel:', error);
       setDebugLogs(prev => [...prev, `❌ Error exporting novel: ${error}`]);
     }
   };

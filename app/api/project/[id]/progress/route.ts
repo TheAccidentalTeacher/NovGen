@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createProjectLogger } from '@/lib/logger';
 
 // Import the same progress tracking map from chapters route
 // Note: In a production app, this would be better stored in Redis or similar
@@ -33,7 +34,8 @@ export async function GET(
 
     return NextResponse.json(progress);
   } catch (error) {
-    console.error('Failed to get generation progress:', error);
+    const logger = createProjectLogger('unknown');
+    logger.error('Failed to get generation progress', error as Error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

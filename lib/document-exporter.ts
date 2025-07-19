@@ -272,8 +272,11 @@ export class DocumentExporter {
 
       return await Packer.toBuffer(doc);
     } catch (error) {
-      console.error('Error exporting to DOCX:', error);
-      throw new Error('Failed to export document');
+      // Log error appropriately based on environment
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[DocumentExporter] Error exporting to DOCX:', error instanceof Error ? error.message : error);
+      }
+      throw new Error(`Failed to export document: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
