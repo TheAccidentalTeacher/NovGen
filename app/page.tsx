@@ -316,14 +316,14 @@ export default function Home() {
             <textarea
               value={formData.premise}
               onChange={(e) => handleInputChange('premise', e.target.value)}
-              maxLength={10000}
+              maxLength={60000}
               rows={8}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Enter your novel's premise, plot outline, character descriptions, and any other details..."
               disabled={project !== null}
             />
             <div className="text-sm text-gray-500 mt-1">
-              {formData.premise.length}/10,000 characters
+              {formData.premise.split(/\s+/).filter(word => word.length > 0).length}/10,000 words (~{formData.premise.length}/60,000 characters)
             </div>
           </div>
 

@@ -5,7 +5,7 @@ An AI-powered full-stack web application that generates complete novels using GP
 ## Features
 
 - **Genre & Subgenre Selection**: Choose from 20+ genres and 200+ subgenres with Christian fiction featured first
-- **Customizable Parameters**: Set word count (20K-200K), chapters (1-100), and premise (up to 10K characters)
+- **Customizable Parameters**: Set word count (20K-200K), chapters (1-100), and premise (up to 10K words)
 - **AI-Powered Generation**: Uses GPT-4 Turbo for high-quality outline and chapter generation
 - **Linear Workflow**: Simple step-by-step process: Setup → Outline → Draft Chapters → Export
 - **Progress Tracking**: Real-time progress indicators with detailed logging

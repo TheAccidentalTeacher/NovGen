@@ -7,7 +7,7 @@ I've built a comprehensive AI-powered novel generation application with all the 
 ### ✅ Core Features Implemented
 
 1. **Genre & Subgenre Selection** - 20+ genres, 200+ subgenres, Christian featured first
-2. **Customizable Parameters** - Word count (20K-200K), chapters (1-100), premise (10K chars)
+2. **Customizable Parameters** - Word count (20K-200K), chapters (1-100), premise (10K words)
 3. **AI-Powered Generation** - GPT-4 Turbo for outline and chapter generation
 4. **Progress Tracking** - Real-time indicators with chapter counter and progress bar
 5. **Quality Control** - Automatic word count validation (±300 words) with regeneration
