@@ -49,6 +49,25 @@ export async function POST(
       projectId: id 
     });
 
+    // Immediately trigger background worker to process the job
+    try {
+      const workerResponse = await fetch(`${process.env.VERCEL_URL || 'http://localhost:3000'}/api/background-worker`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (workerResponse.ok) {
+        logger.info('Background worker triggered successfully', { jobId: job.id });
+      } else {
+        logger.warning('Failed to trigger background worker, job will be processed later', { 
+          jobId: job.id, 
+          status: workerResponse.status 
+        });
+      }
+    } catch (triggerError) {
+      logger.warning('Could not trigger background worker immediately', { jobId: job.id, error: triggerError });
+    }
+
     return NextResponse.json({
       message: 'Outline generation started',
       jobId: job.id,
