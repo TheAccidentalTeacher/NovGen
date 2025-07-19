@@ -125,14 +125,28 @@ export default function Home() {
 
   const savePremise = async () => {
     try {
+      setDebugLogs(prev => [...prev, '🔄 Attempting to save premise...']);
+      setDebugLogs(prev => [...prev, `📊 Form data: ${JSON.stringify({
+        genre: formData.genre,
+        subgenre: formData.subgenre,
+        totalWordCount: formData.totalWordCount,
+        numberOfChapters: formData.numberOfChapters,
+        chapterLength: formData.chapterLength,
+        premiseLength: formData.premise.length
+      })}`]);
+
       const response = await fetch('/api/project', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
       });
 
+      setDebugLogs(prev => [...prev, `📡 Response status: ${response.status}`]);
+
       if (!response.ok) {
-        throw new Error('Failed to save premise');
+        const errorText = await response.text();
+        setDebugLogs(prev => [...prev, `❌ Response error: ${errorText}`]);
+        throw new Error(`Failed to save premise: ${response.status} - ${errorText}`);
       }
 
       const savedProject = await response.json();

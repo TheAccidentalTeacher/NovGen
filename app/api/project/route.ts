@@ -79,10 +79,12 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     logger.error('Failed to create project', error as Error);
     
-    // Return detailed error for debugging (temporarily)
+    // Return detailed error for debugging
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
       { 
         error: 'Internal server error',
+        details: errorMessage,
         timestamp: new Date().toISOString()
       },
       { status: 500 }
