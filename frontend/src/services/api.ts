@@ -1,81 +1,146 @@
-import axios from 'axios'
+// API configuration and utilities for NovGen frontend
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+export interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  error?: string;
+}
 
-// Create axios instance with default config
-export const api = axios.create({
-  baseURL: `${API_URL}/api`,
-  timeout: 120000, // 2 minutes for generation requests
-  headers: {
-    'Content-Type': 'application/json',
-  },
-})
+export interface Novel {
+  _id: string;
+  title: string;
+  genre: string;
+  theme: string;
+  tone: string;
+  setting: string;
+  characterCount: number;
+  chapterCount: number;
+  description: string;
+  status: 'draft' | 'generating' | 'completed' | 'error';
+  createdAt: string;
+  updatedAt: string;
+  chapters?: Chapter[];
+  progress?: GenerationProgress;
+}
 
-// Request interceptor for adding auth tokens
-api.interceptors.request.use(
-  (config) => {
-    // Add auth token if available
-    const token = localStorage.getItem('token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-  },
-  (error) => Promise.reject(error)
-)
+export interface Chapter {
+  _id: string;
+  novelId: string;
+  chapterNumber: number;
+  title: string;
+  content: string;
+  wordCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
 
-// Response interceptor for error handling
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      // Handle unauthorized - redirect to login or clear token
-      localStorage.removeItem('token')
-      window.location.href = '/login'
-    }
-    return Promise.reject(error)
-  }
-)
+export interface GenerationProgress {
+  stage: string;
+  progress: number;
+  message: string;
+  currentChapter?: number;
+  totalChapters?: number;
+}
 
-// API service methods
-export const novelApi = {
-  // Get available genres and subgenres
-  getGenres: () => api.get('/genres'),
+export interface NovelGenerationRequest {
+  title: string;
+  genre: string;
+  theme: string;
+  tone: string;
+  setting: string;
+  characterCount: number;
+  chapterCount: number;
+  description: string;
+}
 
-  // Start novel generation
-  generateNovel: (data: any) => api.post('/novels/generate', data),
-
-  // Get job status
-  getJobStatus: (jobId: string) => api.get(`/jobs/${jobId}/status`),
-
-  // Calculate chapter configuration
-  calculateChapters: (wordCount: number, targetChapterLength: number) =>
-    api.get('/novels/calculate', {
-      params: { wordCount, targetChapterLength }
-    }),
-
-  // Upload synopsis file
-  uploadSynopsis: (file: File) => {
-    const formData = new FormData()
-    formData.append('synopsis', file)
-    return api.post('/upload/synopsis', formData, {
+// Generic API request function
+async function apiRequest<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<ApiResponse<T>> {
+  try {
+    const url = `${API_URL}${endpoint}`;
+    const response = await fetch(url, {
       headers: {
-        'Content-Type': 'multipart/form-data',
+        'Content-Type': 'application/json',
+        ...options.headers,
       },
-    })
+      ...options,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('API request failed:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+    };
+  }
+}
+
+// Novel API functions
+export const novelApi = {
+  // Get all novels
+  getAll: (): Promise<ApiResponse<Novel[]>> => {
+    return apiRequest<Novel[]>('/api/novels');
   },
 
-  // Get novel details
-  getNovel: (novelId: string) => api.get(`/novels/${novelId}`),
+  // Get novel by ID
+  getById: (id: string): Promise<ApiResponse<Novel>> => {
+    return apiRequest<Novel>(`/api/novels/${id}`);
+  },
 
-  // List user's novels
-  listNovels: (params?: any) => api.get('/novels', { params }),
-}
+  // Generate new novel
+  generate: (request: NovelGenerationRequest): Promise<ApiResponse<{ novelId: string }>> => {
+    return apiRequest<{ novelId: string }>('/api/novels/generate', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
 
-// Progress streaming utility
-export const createProgressStream = (jobId: string): EventSource => {
-  const eventSource = new EventSource(`${API_URL}/api/jobs/${jobId}/stream`)
-  return eventSource
-}
+  // Delete novel
+  delete: (id: string): Promise<ApiResponse<void>> => {
+    return apiRequest<void>(`/api/novels/${id}`, {
+      method: 'DELETE',
+    });
+  },
 
-export default api
+  // Get generation progress
+  getProgress: (id: string): Promise<ApiResponse<GenerationProgress>> => {
+    return apiRequest<GenerationProgress>(`/api/novels/${id}/progress`);
+  },
+};
+
+// Chapter API functions
+export const chapterApi = {
+  // Get chapters for a novel
+  getByNovelId: (novelId: string): Promise<ApiResponse<Chapter[]>> => {
+    return apiRequest<Chapter[]>(`/api/novels/${novelId}/chapters`);
+  },
+
+  // Get specific chapter
+  getById: (novelId: string, chapterId: string): Promise<ApiResponse<Chapter>> => {
+    return apiRequest<Chapter>(`/api/novels/${novelId}/chapters/${chapterId}`);
+  },
+};
+
+// Health check
+export const healthApi = {
+  check: (): Promise<ApiResponse<{ status: string; timestamp: string }>> => {
+    return apiRequest<{ status: string; timestamp: string }>('/api/health');
+  },
+};
+
+export default {
+  novelApi,
+  chapterApi,
+  healthApi,
+};

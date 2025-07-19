@@ -1,107 +1,182 @@
-# Somers Novel Generator
+# NovGen
 
-A sophisticated AI-powered novel generation platform that creates genre-aware fiction with up to 10,000-word synopsis support, streaming generation, and resumable workflows.
+An AI-powered novel generation platform that creates complete novels with multiple chapters using OpenAI's GPT models.
 
 ## Features
 
-- **15+ Genres** with 10+ subgenres each, all with explicit AI instructions
-- **AI-Powered Generation** using GPT-4.1 with sophisticated prompting
-- **Streaming Progress** with real-time updates and resumable generation
-- **MongoDB Storage** with job recovery and persistence
-- **Modern Frontend** built with React/Vite
-- **Production Backend** using Express.js with comprehensive error handling
-- **Upload Support** for up to 10,000-word synopsis files
-- **Quality Control** with word count validation and retry logic
+- **AI Novel Generation**: Generate complete novels with multiple chapters using advanced AI
+- **Multiple Genres**: Support for 15+ genres including fantasy, sci-fi, mystery, romance, and more
+- **Customizable Parameters**: Control tone, setting, character count, and chapter count
+- **Real-time Progress**: Track novel generation progress with live updates
+- **Modern UI**: Clean, responsive interface built with React and Tailwind CSS
+- **Full-Stack Architecture**: Express.js backend with React frontend
 
-## Architecture
+## Tech Stack
 
-- **Frontend**: React/Vite (deployed on Netlify)
-- **Backend**: Express.js (deployed on Railway)
-- **Database**: MongoDB with transactional storage
-- **AI**: OpenAI GPT-4.1 with genre-specific prompting
-- **Streaming**: Real-time progress updates via WebSocket/SSE
+### Backend
+- **Node.js** with **Express.js**
+- **TypeScript** for type safety
+- **MongoDB** with Mongoose ODM
+- **OpenAI API** for AI-powered generation
+- **WebSocket** for real-time progress updates
+- **JWT** authentication
+- **Winston** logging
+
+### Frontend
+- **React 18** with TypeScript
+- **Vite** for fast development and building
+- **Tailwind CSS** for styling
+- **React Router** for navigation
+- **React Hot Toast** for notifications
 
 ## Quick Start
 
-1. **Install dependencies**:
+### Prerequisites
+- Node.js 18+ and npm 8+
+- MongoDB (local or cloud)
+- OpenAI API key
+
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/TheAccidentalTeacher/NovGen.git
+   cd NovGen
+   ```
+
+2. **Install dependencies**
    ```bash
    npm run install:all
    ```
 
-2. **Set up environment variables**:
-   - Copy `.env.example` files in both frontend and backend
-   - Add your OpenAI API key and MongoDB connection string
-
-3. **Start development servers**:
+3. **Environment Setup**
    ```bash
-   npm run dev
+   # Backend environment
+   cd backend
+   cp .env.example .env
+   # Edit .env with your configuration
+   
+   # Frontend environment (optional)
+   cd ../frontend
+   echo "VITE_API_URL=http://localhost:3001" > .env
    ```
 
-4. **Access the application**:
+4. **Start development servers**
+   ```bash
+   # Terminal 1 - Backend
+   npm run dev:backend
+   
+   # Terminal 2 - Frontend  
+   npm run dev:frontend
+   ```
+
+5. **Open your browser**
    - Frontend: http://localhost:5173
-   - Backend API: http://localhost:3000
-
-## Project Structure
-
-```
-├── frontend/           # React/Vite frontend
-│   ├── src/
-│   │   ├── components/ # UI components
-│   │   ├── pages/      # Page components
-│   │   ├── services/   # API services
-│   │   └── utils/      # Utilities
-├── backend/            # Express.js backend
-│   ├── src/
-│   │   ├── controllers/# Route controllers
-│   │   ├── services/   # Business logic
-│   │   ├── models/     # MongoDB models
-│   │   ├── middleware/ # Express middleware
-│   │   └── utils/      # Utilities
-│   └── shared/         # Shared configurations
-└── docs/               # Documentation
-```
+   - Backend API: http://localhost:3001
 
 ## Environment Variables
 
 ### Backend (.env)
-```
+```env
 NODE_ENV=development
-PORT=3000
-MONGODB_URI=your_mongodb_connection_string
-OPENAI_API_KEY=your_openai_api_key
-JWT_SECRET=your_jwt_secret
-CORS_ORIGIN=http://localhost:5173
+PORT=3001
+MONGODB_URI=mongodb://localhost:27017/novgen
+OPENAI_API_KEY=your_openai_api_key_here
+JWT_SECRET=your_super_secure_jwt_secret_here
+FRONTEND_URL=http://localhost:5173
 ```
 
 ### Frontend (.env)
-```
-VITE_API_URL=http://localhost:3000
-VITE_APP_NAME=Somers Novel Generator
+```env
+VITE_API_URL=http://localhost:3001
 ```
 
-## Development
+## Project Structure
 
-- **Backend**: Express.js with TypeScript, MongoDB, OpenAI integration
-- **Frontend**: React with TypeScript, Vite, Tailwind CSS
-- **Testing**: Jest for backend, Vitest for frontend
-- **Linting**: ESLint with TypeScript support
-- **Formatting**: Prettier
+```
+NovGen/
+├── backend/                 # Express.js API server
+│   ├── src/
+│   │   ├── controllers/     # Route controllers
+│   │   ├── models/         # MongoDB models
+│   │   ├── services/       # Business logic
+│   │   └── server.ts       # Server entry point
+│   └── package.json
+├── frontend/               # React application
+│   ├── src/
+│   │   ├── components/     # Reusable components
+│   │   ├── pages/         # Page components
+│   │   ├── services/      # API client
+│   │   └── main.tsx       # App entry point
+│   └── package.json
+└── package.json           # Root package.json
+```
+
+## API Endpoints
+
+### Novels
+- `GET /api/novels` - Get all novels
+- `GET /api/novels/:id` - Get novel by ID
+- `POST /api/novels/generate` - Generate new novel
+- `DELETE /api/novels/:id` - Delete novel
+- `GET /api/novels/:id/progress` - Get generation progress
+
+### Chapters
+- `GET /api/novels/:novelId/chapters` - Get chapters for novel
+- `GET /api/novels/:novelId/chapters/:chapterId` - Get specific chapter
+
+### Health
+- `GET /api/health` - Health check endpoint
 
 ## Deployment
 
-- **Frontend**: Netlify with automatic builds from main branch
-- **Backend**: Railway with MongoDB Atlas
-- **Environment**: Production configurations included
+### Railway (Backend)
+The backend is configured for deployment on Railway with automatic deployments from the main branch.
 
-## API Documentation
+### Netlify (Frontend) 
+The frontend is configured for deployment on Netlify with automatic builds from the main branch.
 
-The backend provides comprehensive REST endpoints:
+## Development
 
-- `POST /api/novels/generate` - Start novel generation
-- `GET /api/novels/:id/status` - Check generation status
-- `GET /api/novels/:id/stream` - Stream generation progress
-- `GET /api/genres` - Get available genres and subgenres
+### Available Scripts
+
+#### Root Level
+- `npm run install:all` - Install all dependencies
+- `npm run dev:backend` - Start backend in development
+- `npm run dev:frontend` - Start frontend in development
+- `npm run build:backend` - Build backend for production
+- `npm run build:frontend` - Build frontend for production
+
+#### Backend
+- `npm run dev` - Start with hot reload
+- `npm run build` - Build TypeScript
+- `npm run start` - Start production server
+- `npm test` - Run tests
+- `npm run lint` - Lint code
+
+#### Frontend
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run preview` - Preview production build
+- `npm test` - Run tests
+- `npm run lint` - Lint code
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Commit your changes: `git commit -m 'Add amazing feature'`
+4. Push to the branch: `git push origin feature/amazing-feature`
+5. Open a Pull Request
 
 ## License
 
-Private - All rights reserved
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Support
+
+For support, please open an issue on GitHub or contact the development team.
+
+---
+
+**NovGen** - Bringing AI-powered creativity to novel writing.
