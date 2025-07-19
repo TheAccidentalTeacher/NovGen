@@ -3,6 +3,53 @@ import { getProjectsCollection } from '@/lib/database';
 import { createOpenAIService } from '@/lib/openai-service';
 import { createProjectLogger } from '@/lib/logger';
 
+// Background outline generation for large novels
+async function generateOutlineInBackground(projectId: string, project: { premise: string; genre: string; subgenre: string; numberOfChapters: number }, logger: ReturnType<typeof createProjectLogger>) {
+  try {
+    const openaiService = createOpenAIService(logger);
+    
+    const outline = await openaiService.generateOutline(
+      project.premise,
+      project.genre,
+      project.subgenre,
+      project.numberOfChapters
+    );
+
+    // Update project with generated outline
+    const collection = await getProjectsCollection();
+    await collection.updateOne(
+      { _id: projectId },
+      { 
+        $set: { 
+          outline,
+          status: 'outline',
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    logger.info('Background outline generation completed', { 
+      projectId,
+      chapterCount: outline.length
+    });
+
+  } catch (error) {
+    logger.error('Background outline generation failed', error as Error);
+    
+    // Reset status on failure
+    const collection = await getProjectsCollection();
+    await collection.updateOne(
+      { _id: projectId },
+      { 
+        $set: { 
+          status: 'setup',
+          updatedAt: new Date()
+        }
+      }
+    );
+  }
+}
+
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -31,7 +78,30 @@ export async function POST(
       );
     }
 
-    // Generate outline directly (no job queue needed)
+    // For large novels (25+ chapters), use background processing to avoid timeouts
+    if (project.numberOfChapters >= 25) {
+      // Update status to show we're processing (use 'drafting' as intermediate status)
+      await collection.updateOne(
+        { _id: id },
+        { 
+          $set: { 
+            status: 'drafting',
+            updatedAt: new Date()
+          }
+        }
+      );
+
+      // Start background outline generation (fire and forget)
+      generateOutlineInBackground(id, project, logger);
+
+      return NextResponse.json({
+        message: 'Large outline generation started in background',
+        status: 'drafting',
+        note: 'Refresh page in 60-90 seconds to see results'
+      });
+    }
+
+    // For smaller novels, generate directly
     const openaiService = createOpenAIService(logger);
     
     logger.info('Starting outline generation with OpenAI', {
