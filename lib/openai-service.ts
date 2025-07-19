@@ -99,8 +99,6 @@ export class OpenAIService {
     try {
       this.logger.info('Starting outline generation', { genre, subgenre, numberOfChapters });
       
-      const promptConfig = await this.getActivePromptConfig();
-      
       const systemPrompt = `You are a professional novel outline generator. Create exactly ${numberOfChapters} chapter summaries for a ${genre}/${subgenre} novel.
 
 Each summary should be 1-2 sentences, advance the plot, and connect to surrounding chapters.

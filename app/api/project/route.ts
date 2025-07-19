@@ -188,6 +188,7 @@ export async function PUT(request: NextRequest) {
     };
     
     // Remove _id from the object to create a new document
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { _id: _, ...configWithoutId } = newConfig;
 
     await collection.insertOne(configWithoutId);
