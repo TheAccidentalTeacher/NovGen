@@ -1,13 +1,10 @@
 {
   "name": "novgen-app",
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/next"
-    }
-  ],
+  "buildCommand": "cd novgen-app && npm run build",
+  "outputDirectory": "novgen-app/.next",
+  "installCommand": "cd novgen-app && npm install",
   "functions": {
-    "app/api/project/[id]/chapters/route.ts": {
+    "novgen-app/app/api/project/[id]/chapters/route.ts": {
       "maxDuration": 60
     }
   },
