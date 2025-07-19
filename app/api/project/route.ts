@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 // POST - Create new project
 export async function POST(request: NextRequest) {
   console.log('🔄 POST /api/project called');
+  const logger = createProjectLogger('new-project');
   
   try {
     console.log('🔄 Checking environment variables...');
@@ -27,7 +28,6 @@ export async function POST(request: NextRequest) {
     
     console.log('✅ Environment variables found');
     
-    const logger = createProjectLogger('new-project');
     logger.info('Creating new project');
     
     const body = await request.json();

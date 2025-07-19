@@ -25,7 +25,8 @@ export async function GET() {
     
     // Try to get a collection
     const collection = db.collection('test');
-    console.log('✅ Collection created');
+    const collectionName = collection.collectionName;
+    console.log('✅ Collection created:', collectionName);
     
     return NextResponse.json({ 
       message: 'Database connection successful',
