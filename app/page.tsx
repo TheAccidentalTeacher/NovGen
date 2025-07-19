@@ -239,6 +239,43 @@ export default function Home() {
     }
   };
 
+  const checkProjectStatus = async () => {
+    if (!project) return;
+
+    try {
+      setDebugLogs(prev => [...prev, '🔄 Checking project status...']);
+      
+      const response = await fetch(`/api/project/${project._id}`);
+      if (response.ok) {
+        const updatedProject = await response.json();
+        setProject(updatedProject);
+        
+        // Update outline if it exists
+        if (updatedProject.outline && updatedProject.outline.length > 0) {
+          setOutline(updatedProject.outline);
+          setDebugLogs(prev => [...prev, `✅ Found ${updatedProject.outline.length} chapter outlines!`]);
+        } else {
+          setDebugLogs(prev => [...prev, `ℹ️ Status: ${updatedProject.status} - No outline yet`]);
+        }
+      } else {
+        setDebugLogs(prev => [...prev, `❌ Error checking status: ${response.status}`]);
+      }
+    } catch (error) {
+      setDebugLogs(prev => [...prev, `❌ Error checking project status: ${error}`]);
+    }
+  };
+
+  // Auto-check project status every 30 seconds when project exists but no outline
+  useEffect(() => {
+    if (project && outline.length === 0 && !progress.isGenerating) {
+      const interval = setInterval(() => {
+        checkProjectStatus();
+      }, 30000); // Check every 30 seconds
+
+      return () => clearInterval(interval);
+    }
+  }, [project, outline.length, progress.isGenerating]);
+
   const clearProject = () => {
     // Clear all state
     setProject(null);
@@ -436,17 +473,33 @@ export default function Home() {
         {/* Outline Section */}
         {project && (
           <div className="mt-8 border-t pt-8">
-            <h2 className="text-2xl font-bold mb-4 text-gray-800">Outline Generation</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-gray-800">Outline Generation</h2>
+              <div className="text-sm">
+                <span className="bg-gray-100 px-3 py-1 rounded-full">
+                  Status: <span className="font-semibold">{project.status}</span>
+                </span>
+              </div>
+            </div>
             
             {outline.length === 0 ? (
-              <div className="text-center">
+              <div className="text-center space-y-4">
                 <button
                   onClick={generateOutline}
                   disabled={progress.isGenerating}
-                  className="px-8 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                  className="px-8 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors mr-4"
                 >
                   {progress.stage === 'outline' ? 'Generating Outline...' : 'Generate Outline'}
                 </button>
+                <button
+                  onClick={checkProjectStatus}
+                  className="px-6 py-2 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors"
+                >
+                  Check Status
+                </button>
+                <div className="text-sm text-gray-600 mt-2">
+                  Click &quot;Check Status&quot; to see if background generation completed
+                </div>
               </div>
             ) : (
               <div>
