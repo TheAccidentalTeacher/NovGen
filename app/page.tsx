@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { genres } from '@/lib/genres';
 import { NovelProject } from '@/lib/database';
 
@@ -241,7 +241,7 @@ export default function Home() {
     }
   };
 
-  const checkProjectStatus = async () => {
+  const checkProjectStatus = useCallback(async () => {
     if (!project) return;
 
     try {
@@ -274,7 +274,7 @@ export default function Home() {
     } catch (error) {
       setDebugLogs(prev => [...prev, `❌ Error checking project status: ${error}`]);
     }
-  };
+  }, [project]);
 
   // Auto-check project status every 30 seconds when project exists but no outline
   useEffect(() => {
@@ -637,7 +637,7 @@ export default function Home() {
                   </svg>
                 </div>
                 <p className="text-gray-500 text-lg">Generate an outline to see chapters appear here</p>
-                <p className="text-gray-400 text-sm mt-2">Chapters will appear progressively as they're generated</p>
+                <p className="text-gray-400 text-sm mt-2">Chapters will appear progressively as they&apos;re generated</p>
               </div>
             )}
 
