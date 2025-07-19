@@ -95,13 +95,169 @@ export class OpenAIService {
     }
   }
 
-  // Generate novel outline
-  async generateOutline(premise: string, genre: string, subgenre: string, numberOfChapters: number): Promise<string[]> {
+  // Generate novel outline (with chunking for large novels and progress feedback)
+  async generateOutline(
+    premise: string, 
+    genre: string, 
+    subgenre: string, 
+    numberOfChapters: number,
+    progressCallback?: (progress: number, message: string) => Promise<void>
+  ): Promise<string[]> {
     try {
       this.logger.info('Starting outline generation', { genre, subgenre, numberOfChapters });
       
-      // Use cost-effective model for outline generation - GPT-4o-mini is excellent for structured tasks
-      const systemPrompt = `You are a professional novel outline generator. Create exactly ${numberOfChapters} detailed chapter summaries for a ${genre}/${subgenre} novel.
+      // For large novels (25+ chapters), use chunked generation for better progress feedback
+      if (numberOfChapters >= 25) {
+        return this.generateChunkedOutline(premise, genre, subgenre, numberOfChapters, progressCallback);
+      }
+      
+      // For smaller novels, generate in one go
+      return this.generateSingleOutline(premise, genre, subgenre, numberOfChapters, progressCallback);
+    } catch (error) {
+      this.logger.error('Outline generation failed', error as Error);
+      throw error;
+    }
+  }
+
+  // Generate outline in chunks for better progress feedback
+  private async generateChunkedOutline(
+    premise: string,
+    genre: string,
+    subgenre: string,
+    numberOfChapters: number,
+    progressCallback?: (progress: number, message: string) => Promise<void>
+  ): Promise<string[]> {
+    const chunkSize = 12; // Generate 12 chapters at a time for good balance
+    const chunks = Math.ceil(numberOfChapters / chunkSize);
+    let allOutlines: string[] = [];
+
+    if (progressCallback) {
+      await progressCallback(15, `Breaking ${numberOfChapters} chapters into ${chunks} manageable chunks...`);
+    }
+
+    for (let chunkIndex = 0; chunkIndex < chunks; chunkIndex++) {
+      const startChapter = chunkIndex * chunkSize + 1;
+      const endChapter = Math.min((chunkIndex + 1) * chunkSize, numberOfChapters);
+      const chunkChapters = endChapter - startChapter + 1;
+
+      if (progressCallback) {
+        const progress = 20 + (chunkIndex / chunks) * 70;
+        await progressCallback(progress, `Generating chapters ${startChapter}-${endChapter} outline...`);
+      }
+
+      const chunkOutline = await this.generateSingleChunk(
+        premise,
+        genre,
+        subgenre,
+        chunkChapters,
+        allOutlines,
+        startChapter
+      );
+
+      allOutlines = allOutlines.concat(chunkOutline);
+      
+      this.logger.info(`Completed chunk ${chunkIndex + 1}/${chunks}`, {
+        chaptersGenerated: allOutlines.length,
+        targetChapters: numberOfChapters
+      });
+    }
+
+    if (progressCallback) {
+      await progressCallback(95, 'Finalizing complete outline...');
+    }
+
+    this.logger.info('Chunked outline generation completed', { 
+      totalChapters: allOutlines.length,
+      chunks: chunks
+    });
+
+    return allOutlines;
+  }
+
+  // Generate a single chunk of the outline
+  private async generateSingleChunk(
+    premise: string,
+    genre: string,
+    subgenre: string,
+    chunkChapters: number,
+    previousOutlines: string[],
+    startChapter: number
+  ): Promise<string[]> {
+    const contextInfo = previousOutlines.length > 0 
+      ? `\n\nPREVIOUS CHAPTERS CONTEXT:\nThe story has progressed through ${previousOutlines.length} chapters. Here are the last few chapter summaries for continuity:\n${previousOutlines.slice(-3).map((outline, idx) => `Chapter ${previousOutlines.length - 2 + idx}: ${outline}`).join('\n\n')}`
+      : '';
+
+    const systemPrompt = `You are a professional novel outline generator. Create exactly ${chunkChapters} detailed chapter summaries for chapters ${startChapter}-${startChapter + chunkChapters - 1} of a ${genre}/${subgenre} novel.
+
+Each summary should include:
+
+PLOT SUMMARY (5-6 sentences):
+1. Key plot events and developments
+2. Character arc progression and emotional journey
+3. How the chapter advances the overall story
+4. Character interactions and relationship dynamics
+5. Any character growth, realizations, or changes
+6. Chapter tension and pacing elements
+
+CHARACTER SUMMARIES:
+- Main Characters: 1-2 sentences each describing their development, emotional state, and actions in this chapter
+- Minor Characters: 1-2 sentences for recurring secondary characters who appear
+- One-off Characters: 1 sentence for characters who appear briefly but serve a specific purpose
+
+This detailed approach ensures character consistency and arc continuity across the entire novel.
+
+Return ONLY a valid JSON array of ${chunkChapters} strings. Each string should contain the complete chapter summary with plot and character information.`;
+
+    const userPrompt = `Create detailed summaries for chapters ${startChapter}-${startChapter + chunkChapters - 1} of this ${genre}/${subgenre} novel:
+
+${premise}${contextInfo}
+
+Focus on creating compelling character arcs that show clear progression and growth. Each chapter summary should detail both plot advancement and comprehensive character development to ensure consistency across the entire novel.`;
+
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-4o-mini', // Use cost-effective model for outline generation
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.8,
+      max_tokens: 8000, // Smaller chunks need fewer tokens
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error(`No outline content received for chapters ${startChapter}-${startChapter + chunkChapters - 1}`);
+    }
+
+    // Parse JSON response
+    let outline: string[];
+    try {
+      outline = JSON.parse(content);
+      if (!Array.isArray(outline) || outline.length !== chunkChapters) {
+        throw new Error(`Expected array of ${chunkChapters} summaries, got ${outline?.length || 'invalid'}`);
+      }
+    } catch (parseError) {
+      this.logger.error('Failed to parse outline JSON', parseError as Error, { rawContent: content });
+      throw new Error('Invalid outline format received from AI');
+    }
+
+    return outline;
+  }
+
+  // Generate complete outline in single call (for smaller novels)
+  private async generateSingleOutline(
+    premise: string,
+    genre: string,
+    subgenre: string,
+    numberOfChapters: number,
+    progressCallback?: (progress: number, message: string) => Promise<void>
+  ): Promise<string[]> {
+    if (progressCallback) {
+      await progressCallback(20, `Generating complete ${numberOfChapters}-chapter outline...`);
+    }
+
+    // Use cost-effective model for outline generation - GPT-4o-mini is excellent for structured tasks
+    const systemPrompt = `You are a professional novel outline generator. Create exactly ${numberOfChapters} detailed chapter summaries for a ${genre}/${subgenre} novel.
 
 Each summary should include:
 
@@ -123,49 +279,49 @@ This detailed approach ensures character consistency and arc continuity across t
 Return ONLY a valid JSON array of ${numberOfChapters} strings. Each string should contain the complete chapter summary with plot and character information. Example format:
 ["Chapter 1: [Plot summary in 5-6 sentences describing events, character development, story advancement, relationships, growth moments, and pacing] | CHARACTERS: Main Character Name: [1-2 sentences about their development]. Secondary Character: [1-2 sentences]. Minor Character: [1 sentence].", "Chapter 2: [Next chapter details]...", ...]`;
 
-      const userPrompt = `Create a detailed ${numberOfChapters}-chapter outline for this ${genre}/${subgenre} novel:
+    const userPrompt = `Create a detailed ${numberOfChapters}-chapter outline for this ${genre}/${subgenre} novel:
 
 ${premise}
 
 Focus on creating compelling character arcs that show clear progression and growth throughout the story. Each chapter summary should detail both plot advancement and comprehensive character development (main, minor, and one-off characters) to ensure consistency across the entire novel.`;
 
-      const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini', // Use cost-effective model for outline generation
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.8,
-        max_tokens: 16000, // Increased to handle large novels (35-55 chapters)
-      });
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-4o-mini', // Use cost-effective model for outline generation
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.8,
+      max_tokens: 16000, // Increased to handle large novels (35-55 chapters)
+    });
 
-      const content = response.choices[0]?.message?.content;
-      if (!content) {
-        throw new Error('No outline content received from OpenAI');
-      }
-
-      // Parse JSON response
-      let outline: string[];
-      try {
-        outline = JSON.parse(content);
-        if (!Array.isArray(outline) || outline.length !== numberOfChapters) {
-          throw new Error(`Expected array of ${numberOfChapters} summaries, got ${outline?.length || 'invalid'}`);
-        }
-      } catch (parseError) {
-        this.logger.error('Failed to parse outline JSON', parseError as Error, { rawContent: content });
-        throw new Error('Invalid outline format received from AI');
-      }
-
-      this.logger.info('Outline generation completed', { 
-        chapterCount: outline.length,
-        tokensUsed: response.usage?.total_tokens 
-      });
-
-      return outline;
-    } catch (error) {
-      this.logger.error('Outline generation failed', error as Error);
-      throw error;
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('No outline content received from OpenAI');
     }
+
+    if (progressCallback) {
+      await progressCallback(80, 'Processing outline response...');
+    }
+
+    // Parse JSON response
+    let outline: string[];
+    try {
+      outline = JSON.parse(content);
+      if (!Array.isArray(outline) || outline.length !== numberOfChapters) {
+        throw new Error(`Expected array of ${numberOfChapters} summaries, got ${outline?.length || 'invalid'}`);
+      }
+    } catch (parseError) {
+      this.logger.error('Failed to parse outline JSON', parseError as Error, { rawContent: content });
+      throw new Error('Invalid outline format received from AI');
+    }
+
+    this.logger.info('Outline generation completed', { 
+      chapterCount: outline.length,
+      tokensUsed: response.usage?.total_tokens 
+    });
+
+    return outline;
   }
 
   // Generate a single chapter

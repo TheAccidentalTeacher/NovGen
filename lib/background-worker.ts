@@ -90,12 +90,17 @@ export class BackgroundWorker {
     await this.jobQueue.updateJobProgress(job.id, 10);
 
     try {
-      // Generate the outline
+      // Generate the outline with progress feedback
       const outline = await this.openaiService.generateOutline(
         premise,
         genre,
         subgenre,
-        numberOfChapters
+        numberOfChapters,
+        // Progress callback to update job progress
+        async (progress: number, message: string) => {
+          await this.jobQueue.updateJobProgress(job.id, progress);
+          this.logger.info(`Outline progress: ${progress}% - ${message}`, { jobId: job.id });
+        }
       );
 
       // Complete the job with the result
