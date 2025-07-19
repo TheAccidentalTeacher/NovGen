@@ -5,9 +5,29 @@ import { v4 as uuidv4 } from 'uuid';
 
 // POST - Create new project
 export async function POST(request: NextRequest) {
-  const logger = createProjectLogger('new-project');
+  console.log('🔄 POST /api/project called');
   
   try {
+    console.log('🔄 Checking environment variables...');
+    if (!process.env.MONGODB_URI) {
+      console.error('❌ MONGODB_URI not found');
+      return NextResponse.json(
+        { error: 'Database configuration missing' },
+        { status: 500 }
+      );
+    }
+    
+    if (!process.env.OPENAI_API_KEY) {
+      console.error('❌ OPENAI_API_KEY not found');
+      return NextResponse.json(
+        { error: 'OpenAI configuration missing' },
+        { status: 500 }
+      );
+    }
+    
+    console.log('✅ Environment variables found');
+    
+    const logger = createProjectLogger('new-project');
     logger.info('Creating new project');
     
     const body = await request.json();
