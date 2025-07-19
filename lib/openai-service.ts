@@ -100,24 +100,43 @@ export class OpenAIService {
     try {
       this.logger.info('Starting outline generation', { genre, subgenre, numberOfChapters });
       
-      const systemPrompt = `You are a professional novel outline generator. Create exactly ${numberOfChapters} chapter summaries for a ${genre}/${subgenre} novel.
+      // Use cost-effective model for outline generation - GPT-4o-mini is excellent for structured tasks
+      const systemPrompt = `You are a professional novel outline generator. Create exactly ${numberOfChapters} detailed chapter summaries for a ${genre}/${subgenre} novel.
 
-Each summary should be 1-2 sentences, advance the plot, and connect to surrounding chapters.
+Each summary should include:
 
-Return ONLY a valid JSON array of ${numberOfChapters} strings. Example: ["Chapter 1 summary...", "Chapter 2 summary...", ...]`;
+PLOT SUMMARY (5-6 sentences):
+1. Key plot events and developments
+2. Character arc progression and emotional journey
+3. How the chapter advances the overall story
+4. Character interactions and relationship dynamics
+5. Any character growth, realizations, or changes
+6. Chapter tension and pacing elements
 
-      const userPrompt = `Create a ${numberOfChapters}-chapter outline for this ${genre}/${subgenre} novel:
+CHARACTER SUMMARIES:
+- Main Characters: 1-2 sentences each describing their development, emotional state, and actions in this chapter
+- Minor Characters: 1-2 sentences for recurring secondary characters who appear
+- One-off Characters: 1 sentence for characters who appear briefly but serve a specific purpose
 
-${premise}`;
+This detailed approach ensures character consistency and arc continuity across the entire novel.
+
+Return ONLY a valid JSON array of ${numberOfChapters} strings. Each string should contain the complete chapter summary with plot and character information. Example format:
+["Chapter 1: [Plot summary in 5-6 sentences describing events, character development, story advancement, relationships, growth moments, and pacing] | CHARACTERS: Main Character Name: [1-2 sentences about their development]. Secondary Character: [1-2 sentences]. Minor Character: [1 sentence].", "Chapter 2: [Next chapter details]...", ...]`;
+
+      const userPrompt = `Create a detailed ${numberOfChapters}-chapter outline for this ${genre}/${subgenre} novel:
+
+${premise}
+
+Focus on creating compelling character arcs that show clear progression and growth throughout the story. Each chapter summary should detail both plot advancement and comprehensive character development (main, minor, and one-off characters) to ensure consistency across the entire novel.`;
 
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4-turbo-preview',
+        model: 'gpt-4o-mini', // Use cost-effective model for outline generation
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
         temperature: 0.8,
-        max_tokens: 3000,
+        max_tokens: 8000, // Increased for detailed summaries with character breakdowns
       });
 
       const content = response.choices[0]?.message?.content;
@@ -201,7 +220,7 @@ ${contextualPreviousChapters.length > 0 ?
 Write Chapter ${chapterNumber} now, targeting approximately ${targetWordCount} words.`;
 
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4-turbo-preview',
+        model: 'gpt-4-turbo-preview', // Use premium model for high-quality chapter generation
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
